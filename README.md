@@ -317,7 +317,7 @@ El control de distancia usa un **rango aceptable** `[distancia_min_m,
 distancia_max_m]`, no un único valor objetivo: dentro del rango avanza
 recto sin corregir; si se aleja más de `distancia_max_m`, se acerca
 hasta volver a entrar; si queda más pegado que `distancia_min_m`, se
-aleja. Por defecto está en **5-12 cm** (pegado a la pared derecha).
+aleja. Por defecto está en **7-10 cm** (pegado a la pared derecha).
 
 Cuando no hay pared derecha de referencia (pasillo abierto), en vez de
 ir sin corrección alguna, `wall_follower` mantiene el rumbo con un
@@ -336,11 +336,12 @@ centrada) desvíe al robot lentamente sin que nada lo corrija.
    ~60 cm sin desviarse y sin zigzaguear (si oscila, bajar ganancias; si
    corrige muy lento, subirlas).
 4. **Antes de probar a velocidad real:** con el robot detenido, acércalo
-   a mano hasta la distancia mínima configurada (5 cm) y confirma que a
+   a mano hasta la distancia mínima configurada (7 cm) y confirma que a
    esa distancia la carrocería del robot todavía no toca físicamente la
    pared (el LiDAR puede no estar exactamente en el borde derecho del
-   robot, sino más al centro). Si a 5 cm el cuerpo ya roza la pared,
-   subir `distancia_min_m` antes de dejarlo moverse solo.
+   robot, sino más al centro — el robot mide 8 cm de medio-ancho, muy
+   cerca de estos 7 cm). Si a 7 cm el cuerpo ya roza la pared, subir
+   `distancia_min_m` antes de dejarlo moverse solo.
 
 ### 5.4 Giro de 90° (`state_machine`, estado GIRAR)
 
