@@ -154,6 +154,11 @@ class StateMachineNode(Node):
             'celda_meta': 'F1',
             'heading_inicial': 'NORTE',
             'max_celdas_recorridas': 60,
+            # Factores de correccion de escala del odometro (calibrados en
+            # pista: avance real 76 cm / odometro 78.3 cm y giro real 90 /
+            # odometro 90.92). Dejar en 1.0 si se recalibra desde cero.
+            'factor_dist_odom': 0.9474,
+            'factor_ang_odom': 0.9899,
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
@@ -203,6 +208,9 @@ class StateMachineNode(Node):
         self._heading_inicial = str(g('heading_inicial'))
         self._max_celdas = int(g('max_celdas_recorridas'))
 
+        self._factor_dist_odom = float(g('factor_dist_odom'))
+        self._factor_ang_odom = float(g('factor_ang_odom'))
+
     # ------------------------------------------------------------------
     # Callbacks de suscripcion
     # ------------------------------------------------------------------
@@ -211,9 +219,12 @@ class StateMachineNode(Node):
         self._zones_ready = True
 
     def _on_odom(self, msg: Odometry):
-        self._odom_x = msg.pose.pose.position.x
-        self._odom_y = msg.pose.pose.position.y
-        self._yaw = yaw_from_quaternion(msg.pose.pose.orientation)
+        # Correccion de escala del odometro (medida en pista, ver README):
+        # el ROSMASTER R2 sobreestima tanto distancia como angulo girado,
+        # de forma consistente, por lo que se corrige con un factor fijo.
+        self._odom_x = msg.pose.pose.position.x * self._factor_dist_odom
+        self._odom_y = msg.pose.pose.position.y * self._factor_dist_odom
+        self._yaw = yaw_from_quaternion(msg.pose.pose.orientation) * self._factor_ang_odom
         self._odom_ready = True
 
     def _on_pare(self, msg: Bool):

@@ -212,7 +212,44 @@ con el parámetro `csv_path` de `metrics_logger`). Formato exacto en
 Seguir el orden sugerido por `logica_pared_derecha_robot.md` (sección 20),
 probando por partes antes de correr el laberinto completo.
 
-### 5.1 Orientación y sentido del LiDAR (`lidar_processor`)
+### 5.1 Escala del odómetro (`state_machine` — `factor_dist_odom` / `factor_ang_odom`)
+
+El `/odom_raw` del ROSMASTER R2 sobreestima tanto distancia como ángulo de
+forma consistente (no es ruido aleatorio, es un factor de escala fijo).
+Calibrar esto primero: si la odometría miente sobre cuánto avanzó o giró
+el robot, ninguna otra calibración (avance de 60 cm, giro de 90°) va a
+dar buenos resultados aunque el control esté bien ajustado.
+
+1. Con el robot quieto, leer la pose:
+   ```bash
+   ros2 topic echo /odom_raw --once
+   ```
+2. Empujar el robot **a mano** una distancia real conocida en línea recta
+   (por ejemplo 60 cm, medida con cinta métrica) y volver a leer. Calcular
+   `distancia_odom = sqrt((x2-x1)^2 + (y2-y1)^2)`.
+3. Con el robot quieto de nuevo, anotar el quaternion de orientación,
+   girarlo **a mano** un ángulo real conocido (90°, ayudándose de una
+   escuadra) sin trasladarlo, y volver a leer. El yaw (para un quaternion
+   con x=y=0) es `yaw = 2*atan2(z, w)`; calcular `angulo_odom = yaw2 - yaw1`.
+4. Calcular los factores de corrección:
+   ```text
+   factor_dist_odom = distancia_real / distancia_odom
+   factor_ang_odom  = angulo_real / angulo_odom
+   ```
+5. Poner esos valores en `granprix_params.yaml`, dentro de `state_machine`:
+   ```yaml
+   factor_dist_odom: 0.9474   # ejemplo calibrado: avance real 76 cm / odometro 78.3 cm
+   factor_ang_odom: 0.9899    # ejemplo calibrado: giro real 90° / odometro 90.92°
+   ```
+   `state_machine_node` aplica estos factores a `/odom_raw` apenas lo
+   recibe (`_on_odom`), así que tanto el avance por celda (60 cm) como el
+   cierre de los giros por yaw quedan corregidos automáticamente — no hace
+   falta tocar `wall_follower` ni `lidar_processor` para esto.
+6. Repetir la prueba 2-3 veces (avance y giro) para confirmar que el
+   factor es estable; si varía mucho entre pruebas, sospechar de
+   deslizamiento de ruedas más que de un error de escala fijo.
+
+### 5.2 Orientación y sentido del LiDAR (`lidar_processor`)
 
 1. Con el robot quieto frente a una pared, correr:
    ```bash
@@ -227,7 +264,7 @@ probando por partes antes de correr el laberinto completo.
 4. Repetir hasta que `front`, `right`/`right_front`/`right_rear` y `left`
    correspondan físicamente a lo esperado.
 
-### 5.2 Avance recto y distancia a pared (`wall_follower`)
+### 5.3 Avance recto y distancia a pared (`wall_follower`)
 
 1. Colocar el robot en un pasillo recto de 60 cm, pared a la derecha.
 2. `ros2 run capytown_granprix wall_follower_node` y observar
@@ -237,7 +274,7 @@ probando por partes antes de correr el laberinto completo.
    y sin zigzaguear (si oscila, bajar ganancias; si corrige muy lento,
    subirlas).
 
-### 5.3 Giro de 90° (`state_machine`, estado GIRAR)
+### 5.4 Giro de 90° (`state_machine`, estado GIRAR)
 
 1. Probar en una intersección real o simulando espacio libre a un lado.
 2. Ajustar `velocidad_giro_lineal_mps`, `velocidad_giro_angular_radps` y
@@ -250,21 +287,21 @@ probando por partes antes de correr el laberinto completo.
    se sale del pasillo al girar, bajar la velocidad lineal y/o subir la
    angular para reducir el radio, no al revés.
 
-### 5.4 Alineación tras el giro (`ALINEAR`)
+### 5.5 Alineación tras el giro (`ALINEAR`)
 
 Ajustar `tolerancia_alineacion_m`, `velocidad_alineacion_lineal_mps` y
 `velocidad_alineacion_angular_radps` hasta que, tras un giro, el robot
 quede con S1≈S2 (diferencia menor a 2-3 cm) en un tiempo razonable
 (menor a `tiempo_max_alinear_s`).
 
-### 5.5 Intersección completa
+### 5.6 Intersección completa
 
 Verificar que en un cruce real el robot: se detiene, confirma
 correctamente derecha/frente/izquierda (`muestras_confirmacion`,
 `consenso_minimo`), decide, gira si corresponde, se alinea y retoma el
 avance recto — sin quedar en diagonal.
 
-### 5.6 Señal de PARE (`stop_sign_detector`)
+### 5.7 Señal de PARE (`stop_sign_detector`)
 
 1. Colocar una señal de PARE (roja) frente a la cámara y correr:
    ```bash
@@ -280,7 +317,7 @@ avance recto — sin quedar en diagonal.
 3. Ajustar `frames_confirmacion` (más alto = menos falsos positivos, más
    lento para reaccionar) y `frames_perdida`.
 
-### 5.7 Umbrales de decisión
+### 5.8 Umbrales de decisión
 
 `umbral_frente_pared_m`, `umbral_frente_libre_m`, `umbral_lado_libre_m` y
 `umbral_colision_m` en `state_machine` son los que definen "pared cerca",
