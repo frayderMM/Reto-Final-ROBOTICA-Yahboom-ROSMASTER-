@@ -13,13 +13,15 @@ lidar_processor:
     # --- Calibracion de montaje del LiDAR ---
     # Verificado en pista con lidar_viz.py: el angulo 0 del scan
     # corresponde al ATRAS del robot, no al frente, por eso el offset
-    # es 180. Izquierda/derecha se confirmaron por separado con una
-    # prueba de dos distancias distintas y conocidas puestas a la vez
-    # en cada lado real (p.ej. 40 cm derecha real / 13 cm izquierda
-    # real): con offset=180 e invert=false, DERECHA e IZQUIERDA ya
-    # coinciden con la realidad -- no hace falta invertir.
+    # es 180. La prueba estatica de dos distancias (40 cm derecha real /
+    # 13 cm izquierda real) dio invert=false, pero en la prueba
+    # dinamica real (robot avanzando con wall_follower) seguia la pared
+    # izquierda -- se dejo invert=true por observacion directa en
+    # movimiento, que es la que manda. Si vuelve a fallar, repetir la
+    # prueba de dos distancias pero con el robot en movimiento, no
+    # detenido, para descartar diferencias entre ambos escenarios.
     front_offset_deg: 180.0
-    invert_left_right: false
+    invert_left_right: true
 
     max_range_use_m: 4.0
 
@@ -36,6 +38,7 @@ lidar_processor:
 wall_follower:
   ros__parameters:
     lidar_zones_topic: /lidar_zones
+    odom_topic: /odom_raw
     output_topic: /wall_follow/cmd_vel_suggestion
 
     # Rango aceptable de distancia a la pared derecha (promedio S1/S2),
@@ -55,6 +58,11 @@ wall_follower:
     velocidad_lineal_mps: 0.15
     ganancia_angulo: 3.0
     ganancia_distancia: 2.0
+    # Kp de heading (yaw de /odom_raw) usado solo cuando no hay pared
+    # derecha de referencia, para mantener el rumbo recto en vez de
+    # dejar que un sesgo mecanico del chasis desvie al robot sin
+    # correccion.
+    ganancia_heading: 2.0
     angular_max_radps: 0.6
 
     # Si el frente esta mas cerca que esto, no avanzar aunque el
@@ -86,7 +94,13 @@ state_machine:
     umbral_frente_pared_m: 0.25    # pared al frente: detener avance
     umbral_frente_libre_m: 0.35    # frente libre para avanzar/decidir
     umbral_lado_libre_m: 0.40      # camino lateral libre (derecha/izquierda)
-    umbral_colision_m: 0.07        # distancia de "casi contacto" -> evento COLISION
+
+    # Regla general de seguridad (siempre activa, en cualquier estado):
+    # objeto al frente mas cerca que esto -> detenerse de inmediato,
+    # esperar y volver a preguntar si esta libre (se repite en bucle
+    # mientras siga bloqueado).
+    umbral_colision_m: 0.10
+    tiempo_espera_obstaculo_s: 2.0
 
     distancia_celda_m: 0.60
     margen_avance_m: 0.05          # se detiene en 0.55 m para no pasarse del cruce
@@ -109,11 +123,6 @@ state_machine:
     # --- Senal de PARE ---
     tiempo_pare_s: 3.0
     tiempo_espera_camara_s: 0.5
-
-    # --- Retroceso tras colision ---
-    velocidad_retroceso_mps: 0.08
-    retroceso_ticks: 10
-    collision_cooldown_s: 1.5
 
     # --- Mapa / meta (DETALLE_PISTA.md) ---
     celda_inicio: A4

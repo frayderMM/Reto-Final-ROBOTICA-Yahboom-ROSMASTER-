@@ -290,10 +290,18 @@ python3 lidar_viz.py --ros-args -p front_offset_deg:=180.0 -p invert_left_right:
 
 Una vez confirmado con la prueba de las dos distancias, fijar el valor
 en `granprix_params.yaml` (`lidar_processor.front_offset_deg` /
-`invert_left_right`) — en este robot quedó calibrado en
-**`front_offset_deg: 180.0`**, **`invert_left_right: false`** (el
-ángulo 0 del scan resultó ser el atrás del robot; izquierda/derecha ya
-coincidían con la realidad sin necesidad de invertir).
+`invert_left_right`) — en este robot quedó en **`front_offset_deg:
+180.0`**, **`invert_left_right: true`**.
+
+**Nota sobre esta calibración:** la prueba estática de las dos
+distancias (robot detenido) dio `invert_left_right: false` como
+correcto. Pero en la prueba dinámica real (robot avanzando con
+`wall_follower` en movimiento) terminó siguiendo la pared izquierda en
+vez de la derecha, y se corrigió a `invert_left_right: true` por
+observación directa en movimiento. Si el comportamiento vuelve a
+verse invertido, repetir la prueba de las dos distancias pero con el
+robot en movimiento (no detenido), ya que parece haber una diferencia
+entre ambos escenarios que no está del todo explicada.
 
 Como verificación final con el paquete ya compilado:
 ```bash
@@ -310,6 +318,15 @@ distancia_max_m]`, no un único valor objetivo: dentro del rango avanza
 recto sin corregir; si se aleja más de `distancia_max_m`, se acerca
 hasta volver a entrar; si queda más pegado que `distancia_min_m`, se
 aleja. Por defecto está en **5-12 cm** (pegado a la pared derecha).
+
+Cuando no hay pared derecha de referencia (pasillo abierto), en vez de
+ir sin corrección alguna, `wall_follower` mantiene el rumbo con un
+control **Kp de heading** sobre el yaw de `/odom_raw` (parámetro
+`ganancia_heading`): captura el yaw actual como "rumbo objetivo" en el
+instante en que pierde la pared, y corrige proporcionalmente cualquier
+desviación de ese rumbo mientras dure el tramo sin pared. Esto evita
+que un sesgo mecánico del chasis (dirección Ackermann no perfectamente
+centrada) desvíe al robot lentamente sin que nada lo corrija.
 
 1. Colocar el robot en un pasillo recto de 60 cm, pared a la derecha.
 2. `ros2 run capytown_granprix wall_follower_node` y observar
@@ -384,10 +401,15 @@ avance recto — sin quedar en diagonal.
   (`grid_map.py`), asumiendo ejecución sin deslizamiento severo. Si el
   robot pierde tracción o se desalinea mucho, la estimación de celda
   puede desincronizarse del mapa real.
-- **Colisión:** no hay tópico confirmado de parachoques/bumper en el
-  bringup del robot (ver `PROPIEDADES_ROBOT.md`); se usa el LiDAR frontal
-  como proxy (`umbral_colision_m`) para contar colisiones y hacer un
-  retroceso corto de seguridad.
+- **Objeto al frente — regla general de seguridad:** no hay tópico
+  confirmado de parachoques/bumper en el bringup del robot (ver
+  `PROPIEDADES_ROBOT.md`); se usa el LiDAR frontal como proxy. Esta
+  regla es independiente del estado de la máquina de estados (aplica
+  siempre): si `front < umbral_colision_m` (0.10 m por defecto), el
+  robot se detiene de inmediato, espera `tiempo_espera_obstaculo_s`
+  (2 s) y vuelve a comprobar si ya está libre; si sigue bloqueado,
+  repite la espera en bucle. Cada activación también cuenta como un
+  evento `COLISION` para las métricas.
 - **Pasillo sin pared derecha:** si tras un giro no hay pared derecha de
   referencia, `ALINEAR` se salta (el `yaw` de `GIRAR` ya dejó al robot
   orientado al cardinal correcto) — ver `logica_pared_derecha_robot.md`

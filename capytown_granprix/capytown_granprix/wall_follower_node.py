@@ -16,15 +16,21 @@ entre en diagonal.
 
 Convencion de signos de angular.z (REP-103): positivo = giro hacia la
 izquierda (antihorario), negativo = giro hacia la derecha (horario).
+
+Cuando no hay pared derecha de referencia (pasillo abierto), se usa un
+control Kp de heading (con el yaw de ``/odom_raw``) para mantener el
+rumbo recto en vez de simplemente anular la correccion -- evita que un
+sesgo mecanico del chasis lo desvie lentamente sin que nada lo corrija.
 """
 
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSPresetProfiles
 from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
 
 from capytown_interfaces.msg import LidarZones
-from capytown_granprix.geometry_utils import clamp
+from capytown_granprix.geometry_utils import angle_diff, clamp, yaw_from_quaternion
 
 
 class WallFollowerNode(Node):
@@ -33,6 +39,7 @@ class WallFollowerNode(Node):
         super().__init__('wall_follower')
 
         self.declare_parameter('lidar_zones_topic', '/lidar_zones')
+        self.declare_parameter('odom_topic', '/odom_raw')
         self.declare_parameter('output_topic', '/wall_follow/cmd_vel_suggestion')
         self.declare_parameter('distancia_min_m', 0.05)
         self.declare_parameter('distancia_max_m', 0.12)
@@ -40,10 +47,12 @@ class WallFollowerNode(Node):
         self.declare_parameter('velocidad_lineal_mps', 0.15)
         self.declare_parameter('ganancia_angulo', 3.0)
         self.declare_parameter('ganancia_distancia', 2.0)
+        self.declare_parameter('ganancia_heading', 2.0)
         self.declare_parameter('angular_max_radps', 0.6)
         self.declare_parameter('frente_minimo_seguro_m', 0.15)
 
         self._zones_topic = self.get_parameter('lidar_zones_topic').value
+        self._odom_topic = self.get_parameter('odom_topic').value
         self._output_topic = self.get_parameter('output_topic').value
         self._distancia_min = float(self.get_parameter('distancia_min_m').value)
         self._distancia_max = float(self.get_parameter('distancia_max_m').value)
@@ -51,18 +60,26 @@ class WallFollowerNode(Node):
         self._v_base = float(self.get_parameter('velocidad_lineal_mps').value)
         self._k_angulo = float(self.get_parameter('ganancia_angulo').value)
         self._k_distancia = float(self.get_parameter('ganancia_distancia').value)
+        self._k_heading = float(self.get_parameter('ganancia_heading').value)
         self._angular_max = float(self.get_parameter('angular_max_radps').value)
         self._frente_minimo = float(self.get_parameter('frente_minimo_seguro_m').value)
+
+        self._yaw = 0.0
+        self._heading_objetivo = None
 
         self._pub = self.create_publisher(Twist, self._output_topic, 10)
         self._sub = self.create_subscription(
             LidarZones, self._zones_topic, self._on_zones, QoSPresetProfiles.SENSOR_DATA.value
         )
+        self.create_subscription(Odometry, self._odom_topic, self._on_odom, 10)
 
         self.get_logger().info(
             f'wall_follower listo: rango={self._distancia_min:.2f}-{self._distancia_max:.2f} m, '
             f'v_base={self._v_base:.2f} m/s'
         )
+
+    def _on_odom(self, msg: Odometry) -> None:
+        self._yaw = yaw_from_quaternion(msg.pose.pose.orientation)
 
     def _on_zones(self, msg: LidarZones) -> None:
         cmd = Twist()
@@ -76,11 +93,23 @@ class WallFollowerNode(Node):
 
         if not (msg.right_front_valid and msg.right_rear_valid):
             # Sin referencia confiable de pared derecha (pasillo abierto):
-            # avanzar recto sin corregir, evitando girar "a ciegas".
+            # mantener el rumbo con un Kp de heading sobre el yaw de
+            # odometria, en vez de simplemente anular la correccion (eso
+            # dejaba que un sesgo mecanico del chasis desviara el robot
+            # sin que nada lo corrigiera).
+            if self._heading_objetivo is None:
+                self._heading_objetivo = self._yaw
+            error_heading = angle_diff(self._heading_objetivo, self._yaw)
+            correccion = self._k_heading * error_heading
             cmd.linear.x = self._v_base
-            cmd.angular.z = 0.0
+            cmd.angular.z = clamp(correccion, -self._angular_max, self._angular_max)
             self._pub.publish(cmd)
             return
+
+        # Hay pared derecha valida: al recuperarla, olvidar el heading
+        # objetivo anterior para que la proxima vez que se pierda la
+        # pared se capture un rumbo fresco (no uno desactualizado).
+        self._heading_objetivo = None
 
         error_angulo = msg.right_front - msg.right_rear
 

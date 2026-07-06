@@ -32,7 +32,6 @@ pista (ver README).
 import math
 
 import rclpy
-from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.qos import QoSPresetProfiles
 from geometry_msgs.msg import Twist
@@ -82,8 +81,8 @@ class StateMachineNode(Node):
         self._giro_objetivo = 0.0
         self._alinear_start = None
 
-        self._retroceso_restante = 0
-        self._collision_cooldown_hasta = None
+        self._esperando_obstaculo = False
+        self._espera_obstaculo_inicio = None
 
         self._STATE_HANDLERS = {
             'INICIAR': self._handle_iniciar,
@@ -133,7 +132,11 @@ class StateMachineNode(Node):
             'umbral_frente_pared_m': 0.25,
             'umbral_frente_libre_m': 0.35,
             'umbral_lado_libre_m': 0.40,
-            'umbral_colision_m': 0.07,
+            # Regla general de seguridad (siempre activa, en cualquier
+            # estado): objeto al frente mas cerca que esto -> detenerse
+            # de inmediato, esperar y volver a preguntar si esta libre.
+            'umbral_colision_m': 0.10,
+            'tiempo_espera_obstaculo_s': 2.0,
             'distancia_celda_m': 0.60,
             'margen_avance_m': 0.05,
             'muestras_confirmacion': 5,
@@ -147,9 +150,6 @@ class StateMachineNode(Node):
             'velocidad_alineacion_angular_radps': 0.3,
             'tiempo_pare_s': 3.0,
             'tiempo_espera_camara_s': 0.5,
-            'velocidad_retroceso_mps': 0.08,
-            'retroceso_ticks': 10,
-            'collision_cooldown_s': 1.5,
             'celda_inicio': 'A4',
             'celda_meta': 'F1',
             'heading_inicial': 'NORTE',
@@ -199,9 +199,7 @@ class StateMachineNode(Node):
         self._tiempo_pare = float(g('tiempo_pare_s'))
         self._tiempo_espera_camara = float(g('tiempo_espera_camara_s'))
 
-        self._v_retroceso = float(g('velocidad_retroceso_mps'))
-        self._retroceso_ticks = int(g('retroceso_ticks'))
-        self._collision_cooldown_s = float(g('collision_cooldown_s'))
+        self._tiempo_espera_obstaculo = float(g('tiempo_espera_obstaculo_s'))
 
         self._celda_inicio = str(g('celda_inicio'))
         self._celda_meta = str(g('celda_meta'))
@@ -240,45 +238,50 @@ class StateMachineNode(Node):
         if not (self._odom_ready and self._zones_ready):
             return
 
-        if self._handle_collision_and_backoff():
+        if self._handle_obstaculo_frente():
             return
 
         self._STATE_HANDLERS[self._state]()
 
-    def _handle_collision_and_backoff(self) -> bool:
-        """Frena y retrocede brevemente si detecta un choque inminente.
+    def _handle_obstaculo_frente(self) -> bool:
+        """Regla general de seguridad, activa en cualquier estado.
 
-        Retorna True si este ciclo ya publico un comando (el llamador
-        debe omitir el despacho normal de estados).
+        Si hay un objeto al frente mas cerca que ``umbral_colision_m``,
+        detiene el robot de inmediato, espera ``tiempo_espera_obstaculo_s``
+        y vuelve a comprobar si ya esta libre; si sigue bloqueado,
+        reinicia la espera (queda preguntando en bucle hasta que se
+        libere). Retorna True si este ciclo ya publico un comando (el
+        llamador debe omitir el despacho normal de estados).
         """
-        now = self.get_clock().now()
-
-        if self._retroceso_restante > 0:
-            cmd = Twist()
-            cmd.linear.x = -self._v_retroceso
-            self._publish_twist(cmd)
-            self._retroceso_restante -= 1
-            return True
-
         if self._terminado:
             return False
 
         z = self._zones
-        if z.front_valid and z.front < self._umbral_colision:
-            en_cooldown = (
-                self._collision_cooldown_hasta is not None
-                and now < self._collision_cooldown_hasta
-            )
-            if not en_cooldown:
+        frente_bloqueado = z.front_valid and z.front < self._umbral_colision
+
+        if self._esperando_obstaculo:
+            if frente_bloqueado:
                 self._publish_twist(Twist())
-                self._publish_event(
-                    EV.COLISION, f'obstaculo a {z.front:.2f} m cerca de {self._grid.cell}'
-                )
-                self._retroceso_restante = self._retroceso_ticks
-                self._collision_cooldown_hasta = now + Duration(
-                    seconds=self._collision_cooldown_s
-                )
+                elapsed = (
+                    self.get_clock().now() - self._espera_obstaculo_inicio
+                ).nanoseconds / 1e9
+                if elapsed >= self._tiempo_espera_obstaculo:
+                    # Se cumplio la espera y sigue bloqueado: volver a
+                    # preguntar en el proximo ciclo tras otra espera igual.
+                    self._espera_obstaculo_inicio = self.get_clock().now()
                 return True
+            self._esperando_obstaculo = False
+            return False
+
+        if frente_bloqueado:
+            self._publish_twist(Twist())
+            self._publish_event(
+                EV.COLISION, f'obstaculo a {z.front:.2f} m cerca de {self._grid.cell}'
+            )
+            self._esperando_obstaculo = True
+            self._espera_obstaculo_inicio = self.get_clock().now()
+            return True
+
         return False
 
     # ------------------------------------------------------------------
