@@ -38,9 +38,18 @@ wall_follower:
     lidar_zones_topic: /lidar_zones
     output_topic: /wall_follow/cmd_vel_suggestion
 
-    # Distancia objetivo a la pared derecha (promedio S1/S2), en
-    # metros. Rango aceptable segun el documento de referencia: 0.18-0.25.
-    distancia_objetivo_m: 0.20
+    # Rango aceptable de distancia a la pared derecha (promedio S1/S2),
+    # en metros. Dentro del rango avanza recto sin corregir; fuera de
+    # el, se acerca o se aleja hasta volver a entrar. Ajustado a pedido
+    # para que el robot vaya bien pegado a la pared derecha (5-12 cm).
+    # ADVERTENCIA: el robot mide 16 cm de ancho (8 cm de medio-ancho).
+    # Si S1/S2 se miden desde el LiDAR y este no esta exactamente en el
+    # borde derecho del robot, un minimo de 5 cm puede significar que
+    # la pared queda dentro del cuerpo del robot (colision fisica).
+    # Verificar en pista con el robot detenido junto a la pared antes
+    # de confiar en este rango a velocidad real.
+    distancia_min_m: 0.05
+    distancia_max_m: 0.12
     tolerancia_angulo_m: 0.03
 
     velocidad_lineal_mps: 0.15

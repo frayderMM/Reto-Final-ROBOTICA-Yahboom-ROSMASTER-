@@ -34,7 +34,8 @@ class WallFollowerNode(Node):
 
         self.declare_parameter('lidar_zones_topic', '/lidar_zones')
         self.declare_parameter('output_topic', '/wall_follow/cmd_vel_suggestion')
-        self.declare_parameter('distancia_objetivo_m', 0.20)
+        self.declare_parameter('distancia_min_m', 0.05)
+        self.declare_parameter('distancia_max_m', 0.12)
         self.declare_parameter('tolerancia_angulo_m', 0.03)
         self.declare_parameter('velocidad_lineal_mps', 0.15)
         self.declare_parameter('ganancia_angulo', 3.0)
@@ -44,7 +45,8 @@ class WallFollowerNode(Node):
 
         self._zones_topic = self.get_parameter('lidar_zones_topic').value
         self._output_topic = self.get_parameter('output_topic').value
-        self._distancia_objetivo = float(self.get_parameter('distancia_objetivo_m').value)
+        self._distancia_min = float(self.get_parameter('distancia_min_m').value)
+        self._distancia_max = float(self.get_parameter('distancia_max_m').value)
         self._tolerancia_angulo = float(self.get_parameter('tolerancia_angulo_m').value)
         self._v_base = float(self.get_parameter('velocidad_lineal_mps').value)
         self._k_angulo = float(self.get_parameter('ganancia_angulo').value)
@@ -58,7 +60,7 @@ class WallFollowerNode(Node):
         )
 
         self.get_logger().info(
-            f'wall_follower listo: objetivo={self._distancia_objetivo:.2f} m, '
+            f'wall_follower listo: rango={self._distancia_min:.2f}-{self._distancia_max:.2f} m, '
             f'v_base={self._v_base:.2f} m/s'
         )
 
@@ -86,9 +88,18 @@ class WallFollowerNode(Node):
             # 1. Prioridad: corregir paralelismo antes que distancia.
             correccion = -self._k_angulo * error_angulo
         else:
-            # 2. Ya esta paralelo: corregir distancia a la pared.
+            # 2. Ya esta paralelo: corregir distancia solo si esta fuera
+            # del rango aceptable [distancia_min, distancia_max]. Dentro
+            # del rango, avanzar recto sin corregir (evita oscilar).
             distancia_promedio = (msg.right_front + msg.right_rear) / 2.0
-            error_distancia = self._distancia_objetivo - distancia_promedio
+            if distancia_promedio > self._distancia_max:
+                # Muy lejos: acercarse hasta entrar al rango.
+                error_distancia = self._distancia_max - distancia_promedio
+            elif distancia_promedio < self._distancia_min:
+                # Muy pegado: alejarse hasta entrar al rango.
+                error_distancia = self._distancia_min - distancia_promedio
+            else:
+                error_distancia = 0.0
             correccion = self._k_distancia * error_distancia
 
         cmd.linear.x = self._v_base

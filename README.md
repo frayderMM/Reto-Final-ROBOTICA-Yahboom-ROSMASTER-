@@ -305,13 +305,25 @@ bajan al acercar un objeto al lado físico correspondiente.
 
 ### 5.3 Avance recto y distancia a pared (`wall_follower`)
 
+El control de distancia usa un **rango aceptable** `[distancia_min_m,
+distancia_max_m]`, no un único valor objetivo: dentro del rango avanza
+recto sin corregir; si se aleja más de `distancia_max_m`, se acerca
+hasta volver a entrar; si queda más pegado que `distancia_min_m`, se
+aleja. Por defecto está en **5-12 cm** (pegado a la pared derecha).
+
 1. Colocar el robot en un pasillo recto de 60 cm, pared a la derecha.
 2. `ros2 run capytown_granprix wall_follower_node` y observar
    `/wall_follow/cmd_vel_suggestion`.
-3. Ajustar `distancia_objetivo_m`, `ganancia_angulo`, `ganancia_distancia`
-   y `angular_max_radps` hasta que el robot recorra ~60 cm sin desviarse
-   y sin zigzaguear (si oscila, bajar ganancias; si corrige muy lento,
-   subirlas).
+3. Ajustar `distancia_min_m`, `distancia_max_m`, `ganancia_angulo`,
+   `ganancia_distancia` y `angular_max_radps` hasta que el robot recorra
+   ~60 cm sin desviarse y sin zigzaguear (si oscila, bajar ganancias; si
+   corrige muy lento, subirlas).
+4. **Antes de probar a velocidad real:** con el robot detenido, acércalo
+   a mano hasta la distancia mínima configurada (5 cm) y confirma que a
+   esa distancia la carrocería del robot todavía no toca físicamente la
+   pared (el LiDAR puede no estar exactamente en el borde derecho del
+   robot, sino más al centro). Si a 5 cm el cuerpo ya roza la pared,
+   subir `distancia_min_m` antes de dejarlo moverse solo.
 
 ### 5.4 Giro de 90° (`state_machine`, estado GIRAR)
 
