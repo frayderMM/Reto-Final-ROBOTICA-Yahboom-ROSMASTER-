@@ -11,11 +11,13 @@ lidar_processor:
     output_topic: /lidar_zones
 
     # --- Calibracion de montaje del LiDAR ---
-    # Si el "frente" reportado no coincide con el frente fisico del
-    # robot, ajustar este offset (grados que hay que sumar al angulo
-    # 0 del scan para que coincida con el frente real).
-    front_offset_deg: 0.0
-    # Si izquierda y derecha aparecen invertidas, cambiar a true.
+    # Verificado en pista con lidar_viz.py (caja de 30 cm en los 4 lados
+    # reales del robot): el angulo 0 del scan corresponde al ATRAS del
+    # robot, no al frente, por eso el offset es 180.
+    front_offset_deg: 180.0
+    # Izquierda y derecha quedaron correctas con el offset de 180 (no fue
+    # necesario invertir). Si en otra unidad/montaje aparecen cambiadas,
+    # poner esto en true.
     invert_left_right: false
 
     max_range_use_m: 4.0

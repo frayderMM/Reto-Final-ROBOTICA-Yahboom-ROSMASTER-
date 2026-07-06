@@ -251,18 +251,48 @@ dar buenos resultados aunque el control esté bien ajustado.
 
 ### 5.2 Orientación y sentido del LiDAR (`lidar_processor`)
 
-1. Con el robot quieto frente a una pared, correr:
-   ```bash
-   ros2 run capytown_granprix lidar_processor_node
-   ros2 topic echo /lidar_zones
-   ```
-2. Si `front` no baja al acercar un obstáculo al frente real del robot,
-   ajustar `front_offset_deg` en `granprix_params.yaml` (probar 180 si el
-   LiDAR está montado invertido).
-3. Si al acercar un obstáculo por la **derecha** física el valor que baja
-   es `left` (o viceversa), poner `invert_left_right: true`.
-4. Repetir hasta que `front`, `right`/`right_front`/`right_rear` y `left`
-   correspondan físicamente a lo esperado.
+La forma más confiable de calibrar esto es **visual**, con el script de
+diagnóstico `lidar_viz.py` (raíz del repo, no requiere `colcon build`):
+
+```bash
+python3 /root/yahboomcar_ws/src/reto-final/lidar_viz.py
+```
+
+Dibuja en vivo los puntos crudos de `/scan` en el marco del robot (frente
+arriba) con 4 sectores de color (verde=frente, rojo=derecha,
+azul=izquierda, naranja=atrás) y la distancia mínima de cada uno. Pon un
+objeto grande (caja/tablón, para evitar ambigüedad angular) en cada lado
+físico real del robot, uno a la vez, y confirma en qué sector de color
+aparece la mancha de puntos:
+
+- Si aparece en el sector correcto → no hace falta tocar nada.
+- Si frente/atrás están cambiados → ajustar `front_offset_deg` (probar
+  `180.0`) y volver a probar los 4 lados (un giro de 180° también
+  intercambia izquierda/derecha, porque es una rotación completa del
+  marco, no un espejo).
+- Si solo izquierda/derecha quedan cambiadas (con frente/atrás ya
+  correctos) → `invert_left_right: true`.
+
+Puedes probar valores sin editar el YAML todavía, pasando parámetros
+directo al script:
+```bash
+python3 lidar_viz.py --ros-args -p front_offset_deg:=180.0 -p invert_left_right:=true
+```
+
+Una vez confirmado visualmente, fijar el valor en `granprix_params.yaml`
+(`lidar_processor.front_offset_deg` / `invert_left_right`) — en este
+robot quedó calibrado en **`front_offset_deg: 180.0`**,
+`invert_left_right: false` (el ángulo 0 del scan resultó ser el atrás
+del robot, no el frente; izquierda/derecha ya quedaron correctas con
+ese offset).
+
+Como verificación final con el paquete ya compilado:
+```bash
+ros2 run capytown_granprix lidar_processor_node
+ros2 topic echo /lidar_zones
+```
+y confirmar que `front`, `right`/`right_front`/`right_rear` y `left`
+bajan al acercar un objeto al lado físico correspondiente.
 
 ### 5.3 Avance recto y distancia a pared (`wall_follower`)
 
