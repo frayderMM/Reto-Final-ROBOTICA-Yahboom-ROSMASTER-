@@ -11,16 +11,15 @@ lidar_processor:
     output_topic: /lidar_zones
 
     # --- Calibracion de montaje del LiDAR ---
-    # Verificado en pista con lidar_viz.py (caja de 30 cm en los 4 lados
-    # reales del robot): el angulo 0 del scan corresponde al ATRAS del
-    # robot, no al frente, por eso el offset es 180.
+    # Verificado en pista con lidar_viz.py: el angulo 0 del scan
+    # corresponde al ATRAS del robot, no al frente, por eso el offset
+    # es 180. Izquierda/derecha se confirmaron por separado con una
+    # prueba de dos distancias distintas y conocidas puestas a la vez
+    # en cada lado real (p.ej. 40 cm derecha real / 13 cm izquierda
+    # real): con offset=180 e invert=false, DERECHA e IZQUIERDA ya
+    # coinciden con la realidad -- no hace falta invertir.
     front_offset_deg: 180.0
-    # Un offset de 180 es una ROTACION completa del marco: corrige
-    # frente/atras pero de paso tambien intercambia izquierda/derecha
-    # (confirmado en pista: el robot seguia la pared IZQUIERDA real
-    # usando la logica de pared derecha, y se chocaba). Se corrige
-    # invirtiendo el sentido aqui, sin tocar el offset de arriba.
-    invert_left_right: true
+    invert_left_right: false
 
     max_range_use_m: 4.0
 

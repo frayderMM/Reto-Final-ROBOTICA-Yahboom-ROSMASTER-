@@ -268,30 +268,32 @@ aparece la mancha de puntos:
 - Si aparece en el sector correcto → no hace falta tocar nada.
 - Si frente/atrás están cambiados → ajustar `front_offset_deg` (probar
   `180.0`).
-- **Importante:** un cambio de `front_offset_deg` de 180° es una
-  ROTACIÓN completa del marco, no un espejo — corrige frente/atrás
-  pero de paso también intercambia izquierda/derecha. Por eso, **cada
-  vez que cambies `front_offset_deg`, hay que volver a probar los 4
-  lados (no solo frente)** antes de confiar en el resultado. Verificar
-  solo frente y asumir que izquierda/derecha quedaron bien fue
-  justamente el error que causó que el robot chocara siguiendo el lado
-  equivocado en la primera prueba real de este robot.
-- Si izquierda/derecha quedan cambiadas (con frente/atrás ya
-  correctos) → `invert_left_right: true`.
+- Si izquierda/derecha quedan cambiadas → `invert_left_right: true`.
+
+**Importante — no confiar en un solo lado a la vez:** verificar
+izquierda y derecha por separado, con un solo objeto genérico, puede
+ser ambiguo (ruido del cuarto, objetos parecidos a ambos lados). La
+prueba confiable es poner **dos objetos con distancias distintas y
+reconocibles, uno en cada lado real, al mismo tiempo** (por ejemplo,
+algo a ~40 cm en la derecha real y algo a ~13 cm en la izquierda
+real) y comparar directamente: `DERECHA` debe mostrar ~0.40 e
+`IZQUIERDA` ~0.13. Si salen cambiados (`DERECHA`≈0.13,
+`IZQUIERDA`≈0.40), están invertidos. Cambiar `front_offset_deg` por sí
+solo no permite inferir el estado de izquierda/derecha — hay que
+probarlas explícitamente cada vez que se toque el offset.
 
 Puedes probar valores sin editar el YAML todavía, pasando parámetros
 directo al script:
 ```bash
-python3 lidar_viz.py --ros-args -p front_offset_deg:=180.0 -p invert_left_right:=true
+python3 lidar_viz.py --ros-args -p front_offset_deg:=180.0 -p invert_left_right:=false
 ```
 
-Una vez confirmado visualmente **en los 4 lados**, fijar el valor en
-`granprix_params.yaml` (`lidar_processor.front_offset_deg` /
+Una vez confirmado con la prueba de las dos distancias, fijar el valor
+en `granprix_params.yaml` (`lidar_processor.front_offset_deg` /
 `invert_left_right`) — en este robot quedó calibrado en
-**`front_offset_deg: 180.0`**, **`invert_left_right: true`** (el ángulo
-0 del scan resultó ser el atrás del robot; el offset de 180° corrigió
-frente/atrás pero invirtió izquierda/derecha de paso, por lo que hizo
-falta además la inversión).
+**`front_offset_deg: 180.0`**, **`invert_left_right: false`** (el
+ángulo 0 del scan resultó ser el atrás del robot; izquierda/derecha ya
+coincidían con la realidad sin necesidad de invertir).
 
 Como verificación final con el paquete ya compilado:
 ```bash
