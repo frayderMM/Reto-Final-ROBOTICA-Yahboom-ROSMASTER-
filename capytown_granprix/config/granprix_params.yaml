@@ -1,0 +1,142 @@
+# Parametros del Reto Final - Gran Prix CapyTown
+# Yahboom ROSMASTER R2 (Raspberry Pi 5) - ROS 2 Humble
+#
+# Editar SIEMPRE en el PC (nunca en el robot), luego commit + push +
+# pull en el robot (ver FLUJO_DE_TRABAJO.md y README.md, seccion
+# Calibracion).
+
+lidar_processor:
+  ros__parameters:
+    scan_topic: /scan
+    output_topic: /lidar_zones
+
+    # --- Calibracion de montaje del LiDAR ---
+    # Si el "frente" reportado no coincide con el frente fisico del
+    # robot, ajustar este offset (grados que hay que sumar al angulo
+    # 0 del scan para que coincida con el frente real).
+    front_offset_deg: 0.0
+    # Si izquierda y derecha aparecen invertidas, cambiar a true.
+    invert_left_right: false
+
+    max_range_use_m: 4.0
+
+    # Ventanas angulares en el marco del ROBOT (0=frente,
+    # +90=izquierda, -90=derecha; ver logica_pared_derecha_robot.md
+    # seccion 10). Ajustar solo si el barrido del MS200 en este robot
+    # no corresponde a estos valores tras aplicar el offset/inversion.
+    front_window_deg: [-15.0, 15.0]
+    right_front_window_deg: [-75.0, -45.0]   # S1
+    right_window_deg: [-110.0, -70.0]
+    right_rear_window_deg: [-135.0, -105.0]  # S2
+    left_window_deg: [70.0, 110.0]
+
+wall_follower:
+  ros__parameters:
+    lidar_zones_topic: /lidar_zones
+    output_topic: /wall_follow/cmd_vel_suggestion
+
+    # Distancia objetivo a la pared derecha (promedio S1/S2), en
+    # metros. Rango aceptable segun el documento de referencia: 0.18-0.25.
+    distancia_objetivo_m: 0.20
+    tolerancia_angulo_m: 0.03
+
+    velocidad_lineal_mps: 0.15
+    ganancia_angulo: 3.0
+    ganancia_distancia: 2.0
+    angular_max_radps: 0.6
+
+    # Si el frente esta mas cerca que esto, no avanzar aunque el
+    # estado siga siendo AVANZAR_PARALELO (seguridad redundante).
+    frente_minimo_seguro_m: 0.15
+
+state_machine:
+  ros__parameters:
+    lidar_zones_topic: /lidar_zones
+    odom_topic: /odom_raw
+    cmd_vel_topic: /cmd_vel
+    wall_follow_topic: /wall_follow/cmd_vel_suggestion
+    pare_topic: /pare_detectado
+    event_topic: /robot_event
+    robot_state_topic: /robot_state
+
+    usar_camara: true
+    control_rate_hz: 20.0
+
+    # --- Umbrales de deteccion (logica_pared_derecha_robot.md, seccion 11) ---
+    umbral_frente_pared_m: 0.25    # pared al frente: detener avance
+    umbral_frente_libre_m: 0.35    # frente libre para avanzar/decidir
+    umbral_lado_libre_m: 0.40      # camino lateral libre (derecha/izquierda)
+    umbral_colision_m: 0.07        # distancia de "casi contacto" -> evento COLISION
+
+    distancia_celda_m: 0.60
+    margen_avance_m: 0.05          # se detiene en 0.55 m para no pasarse del cruce
+
+    # Confirmacion de lecturas en el cruce (evita falsos cruces por ruido).
+    muestras_confirmacion: 5
+    consenso_minimo: 4
+
+    # --- Giro (chasis Ackermann: arco lento con cierre por yaw de odometria) ---
+    velocidad_giro_lineal_mps: 0.08
+    velocidad_giro_angular_radps: 0.5
+    tolerancia_giro_deg: 4.0
+
+    # --- Alineacion tras el giro ---
+    tolerancia_alineacion_m: 0.02
+    tiempo_max_alinear_s: 4.0
+    velocidad_alineacion_lineal_mps: 0.06
+    velocidad_alineacion_angular_radps: 0.3
+
+    # --- Senal de PARE ---
+    tiempo_pare_s: 3.0
+    tiempo_espera_camara_s: 0.5
+
+    # --- Retroceso tras colision ---
+    velocidad_retroceso_mps: 0.08
+    retroceso_ticks: 10
+    collision_cooldown_s: 1.5
+
+    # --- Mapa / meta (DETALLE_PISTA.md) ---
+    celda_inicio: A4
+    celda_meta: F1
+    heading_inicial: NORTE
+    max_celdas_recorridas: 60
+
+stop_sign_detector:
+  ros__parameters:
+    image_topic: /camera/image_raw
+    output_topic: /pare_detectado
+    debug_image_topic: /pare_detectado/debug_image
+    publicar_debug: false
+
+    # Segmentacion HSV de rojo (OpenCV: H en 0-179). El rojo cruza el
+    # 0, por eso se usan dos rangos.
+    rango1_min: [0, 120, 70]
+    rango1_max: [10, 255, 255]
+    rango2_min: [170, 120, 70]
+    rango2_max: [180, 255, 255]
+
+    area_minima_px: 800.0
+    area_maxima_px: 60000.0
+    relacion_aspecto_min: 0.6
+    relacion_aspecto_max: 1.4
+
+    frames_confirmacion: 3
+    frames_perdida: 5
+
+    roi_y_min_frac: 0.0
+    roi_y_max_frac: 1.0
+
+metrics_logger:
+  ros__parameters:
+    event_topic: /robot_event
+    odom_topic: /odom_raw
+    csv_path: "~/capytown_resultados/metricas_granprix.csv"
+
+    # 1 = ronda de exploracion, 2 = ronda time attack (ver DETALLE RETO 3.md)
+    ronda: 1
+    # Numero real de senales PARE en la pista (dato conocido de la
+    # competencia, no medido por el robot).
+    pare_reales: 3
+    # Longitud de la ruta mas corta conocida (ver DETALLE_PISTA.md,
+    # ruta sugerida A4-A3-A2-B2-C2-C1-D1-E1-F1 = 480 cm).
+    long_optima_cm: 480.0
