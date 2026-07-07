@@ -246,6 +246,7 @@ def pasillo_frente_bloqueado_gira_izquierda(
     ancho_m: float = 0.60,
     x_inicio: float = 0.0,
     celdas_cierre: float = 2.0,
+    largo_aproximacion_m: Optional[float] = None,
 ) -> Pasillo:
     """Corredor recto (robot avanza en +x, pared derecha en -y) que
     termina en un FONDO CIEGO: una pared frontal cierra todo el ancho
@@ -258,12 +259,21 @@ def pasillo_frente_bloqueado_gira_izquierda(
     abierta ahi); se agrega solo un cierre lejano hacia el norte para
     que "izquierda libre" de una lectura valida y finita en vez de
     infinito (mismo motivo que en ``pasillo_esquina_concava_derecha``).
+
+    ``largo_aproximacion_m`` separa el largo del tramo recto (cuanto
+    corre el robot antes de llegar al fondo) del ancho de la celda
+    (``celda_m``, que sigue siendo 0.60 = una celda del laberinto real).
+    Por defecto son iguales (una sola celda), pero un tramo mas largo
+    (varias celdas) le da al control mas tiempo para converger a la
+    distancia objetivo antes de la decision, mas realista que un solo
+    tramo corto.
     """
     p = Pasillo()
 
     y_der_0 = -ancho_m / 2.0
     y_izq_0 = ancho_m / 2.0
-    x_frente = x_inicio + celda_m
+    largo = largo_aproximacion_m if largo_aproximacion_m is not None else celda_m
+    x_frente = x_inicio + largo
 
     # Pared derecha (la que el robot sigue).
     p.agregar(x_inicio, y_der_0, x_frente, y_der_0)

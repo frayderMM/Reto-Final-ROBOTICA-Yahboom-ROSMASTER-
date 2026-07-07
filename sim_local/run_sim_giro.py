@@ -77,6 +77,9 @@ def parse_args():
     p.add_argument('--retranqueo', type=float, default=None,
                     help='solo para --tipo-esquina concava: cuanto se retranquea la pared del '
                          'segundo tramo (m, por defecto medio ancho de pasillo)')
+    p.add_argument('--largo-aproximacion', type=float, default=None,
+                    help='solo para --tipo-esquina frente_izquierda: largo del tramo recto antes '
+                         'del fondo ciego (m, por defecto = --celda, o sea una sola celda)')
     return p.parse_args()
 
 
@@ -114,7 +117,9 @@ def main():
             celda_m=args.celda, ancho_m=args.ancho, retranqueo_m=args.retranqueo
         )
     elif args.tipo_esquina == 'frente_izquierda':
-        pasillo = pasillo_frente_bloqueado_gira_izquierda(celda_m=args.celda, ancho_m=args.ancho)
+        pasillo = pasillo_frente_bloqueado_gira_izquierda(
+            celda_m=args.celda, ancho_m=args.ancho, largo_aproximacion_m=args.largo_aproximacion
+        )
     else:
         pasillo = pasillo_esquina_giro_derecha(celda_m=args.celda, ancho_m=args.ancho)
 
@@ -247,7 +252,8 @@ def _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado, decision_info, 
     ax.set_title(info, fontsize=9, color=color_estado)
 
     if args.tipo_esquina == 'frente_izquierda':
-        ax.set_xlim(-0.6, 1.4)
+        largo = args.largo_aproximacion if args.largo_aproximacion is not None else args.celda
+        ax.set_xlim(-0.3, largo + 0.6)
         ax.set_ylim(-0.6, 1.4)
     else:
         ax.set_xlim(-0.6, 1.4)
