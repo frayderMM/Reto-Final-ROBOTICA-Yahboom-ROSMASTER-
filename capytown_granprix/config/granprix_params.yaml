@@ -15,19 +15,21 @@ lidar_processor:
     # offset=0/invert=false -> frente mostraba lo que era atras.
     # offset=180/invert=false -> estatico parecia bien, pero en
     #   movimiento seguia la pared izquierda.
-    # offset=180/invert=true -> en una prueba real posterior, frente Y
-    #   derecha quedaron AMBOS invertidos (frente=atras, derecha=izq)
-    #   al mismo tiempo -- eso es literalmente una rotacion de 180
-    #   completa de mas. Matematicamente, agregar +180 al offset actual
-    #   (manteniendo el mismo invert) equivale a restar 180, es decir
-    #   volver a offset=0 con invert=true (no probado antes en esa
-    #   combinacion exacta).
-    # ACTUAL A VERIFICAR: offset=0, invert=true. Confirmar con
-    # lidar_viz.py poniendo un objeto en LOS 4 LADOS reales (no solo
-    # frente) antes de dar esto por bueno -- cada vez que se cambio
-    # esto sin verificar los 4 lados se volvio a romper otra cosa.
-    front_offset_deg: 0.0
-    invert_left_right: true
+    # offset=180/invert=true -> frente Y derecha quedaron AMBOS
+    #   invertidos a la vez (rotacion de 180 de mas).
+    # offset=0/invert=true -> izquierda/derecha quedaron BIEN, pero
+    #   frente/atras siguieron invertidos.
+    # Como invertir "sign" es un ESPEJO (solo cambia izq/der, no toca
+    # frente/atras) y el offset es una ROTACION (mueve los dos ejes
+    # juntos), la combinacion que corrige frente/atras sin romper el
+    # izquierda/derecha ya bueno es offset=180, invert=false (resuelto
+    # por geometria, no por prueba y error esta vez) -- coincide con
+    # una combinacion ya validada antes con la prueba de dos distancias.
+    # VERIFICAR con lidar_viz.py en LOS 4 LADOS antes de confiar en
+    # movimiento -- cada vez que se cambio esto sin verificar los 4
+    # lados se volvio a romper otra cosa.
+    front_offset_deg: 180.0
+    invert_left_right: false
 
     max_range_use_m: 4.0
 
