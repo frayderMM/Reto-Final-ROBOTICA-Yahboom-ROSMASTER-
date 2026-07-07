@@ -67,6 +67,7 @@ class ParametrosControl:
     ganancia_distancia: float = 2.0    # Kp sobre metros
     ganancia_heading: float = 2.0      # Kp de respaldo sin pared (radianes)
     angular_max_radps: float = 0.6
+    umbral_muy_cerca_m: float = 0.06   # ver nota en calcular_comando
 
 
 def _clamp(v: float, lo: float, hi: float) -> float:
@@ -77,9 +78,10 @@ def calcular_comando(
     ajuste: Optional[AjusteLinea],
     yaw_actual: float,
     heading_objetivo: Optional[float],
+    ultima_distancia_valida: Optional[float],
     params: ParametrosControl,
-) -> Tuple[float, float, Optional[float]]:
-    """Calcula (linear_x, angular_z, nuevo_heading_objetivo).
+) -> Tuple[float, float, Optional[float], Optional[float]]:
+    """Calcula (linear_x, angular_z, nuevo_heading_objetivo, nueva_ultima_distancia).
 
     Si hay pared, corrige angulo Y distancia SIMULTANEAMENTE (suma
     ponderada), no alternando entre uno u otro. Alternar (corregir solo
@@ -89,19 +91,49 @@ def calcular_comando(
     a inducir error de distancia -- oscilacion sostenida verificada en
     sim_local/ (±1.4 cm indefinidamente, nunca se asienta). La suma
     simultanea sí converge (std < 0.01 cm en la cola del recorrido).
-    Si no hay pared, mantener rumbo con Kp de heading sobre el yaw.
+
+    Si NO hay pared (``ajuste`` es None), el LiDAR no reporta puntos
+    por debajo de su rango minimo (~3 cm en el MS200) -- un pasillo
+    "genuinamente abierto" y una pared "demasiado cerca para medir" se
+    ven IGUAL en el escaneo (sin puntos validos), asi que no se puede
+    distinguir con la lectura actual sola. En cambio, se usa la
+    ULTIMA distancia valida conocida como pista:
+
+    - Si ``ultima_distancia_valida`` existe y es menor a
+      ``umbral_muy_cerca_m``: lo mas probable es que el robot se
+      acerco demasiado y perdio la pared por estar bajo el rango
+      minimo. Girar activamente lejos de la pared derecha (angular
+      maximo) hasta recuperar una lectura valida -- si en vez de esto
+      se mantiene el rumbo (como en el caso "pasillo abierto"), el
+      robot no corrige nada y, si el rumbo apunta un poco hacia
+      afuera, se aleja sin control y nunca vuelve (bug real
+      encontrado probando en el robot).
+    - Si no, asumir pasillo genuinamente abierto: mantener rumbo con
+      Kp de heading sobre el yaw, como antes.
     """
     if ajuste is None:
+        muy_cerca = (
+            ultima_distancia_valida is not None
+            and ultima_distancia_valida < params.umbral_muy_cerca_m
+        )
+        if muy_cerca:
+            return (
+                params.velocidad_lineal_mps, params.angular_max_radps,
+                None, ultima_distancia_valida,
+            )
+
         if heading_objetivo is None:
             heading_objetivo = yaw_actual
         error_heading = _angle_diff(heading_objetivo, yaw_actual)
         correccion = params.ganancia_heading * error_heading
         angular = _clamp(correccion, -params.angular_max_radps, params.angular_max_radps)
-        return params.velocidad_lineal_mps, angular, heading_objetivo
+        return params.velocidad_lineal_mps, angular, heading_objetivo, ultima_distancia_valida
 
     # Hay pared: se olvida el heading objetivo (se recaptura fresco la
-    # proxima vez que se pierda la pared).
+    # proxima vez que se pierda la pared) y se actualiza la ultima
+    # distancia valida conocida.
     heading_objetivo = None
+    ultima_distancia_valida = ajuste.distancia_m
 
     # Geometria: si la pared (horizontal en el mundo) se ve en el marco
     # del robot con pendiente m, entonces angulo_rad = atan(m) =
@@ -114,7 +146,7 @@ def calcular_comando(
     correccion = params.ganancia_angulo * ajuste.angulo_rad + params.ganancia_distancia * error_distancia
 
     angular = _clamp(correccion, -params.angular_max_radps, params.angular_max_radps)
-    return params.velocidad_lineal_mps, angular, heading_objetivo
+    return params.velocidad_lineal_mps, angular, heading_objetivo, ultima_distancia_valida
 
 
 def _angle_diff(target: float, current: float) -> float:

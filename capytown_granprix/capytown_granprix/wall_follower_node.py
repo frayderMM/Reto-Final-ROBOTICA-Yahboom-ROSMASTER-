@@ -23,10 +23,25 @@ converge con std < 0.01 cm.
 Convencion de signos de angular.z (REP-103): positivo = giro hacia la
 izquierda (antihorario), negativo = giro hacia la derecha (horario).
 
-Cuando no hay pared derecha de referencia (pasillo abierto), se usa un
-control Kp de heading (con el yaw de ``/odom_raw``) para mantener el
-rumbo recto en vez de simplemente anular la correccion -- evita que un
-sesgo mecanico del chasis lo desvie lentamente sin que nada lo corrija.
+Cuando no hay pared derecha de referencia hay dos casos, indistinguibles
+en la lectura actual del LiDAR (el MS200 no reporta puntos por debajo
+de su rango minimo, ~3 cm -- un pasillo abierto y una pared demasiado
+cerca para medir se ven IGUAL: sin puntos validos):
+
+- **Pasillo genuinamente abierto:** mantener rumbo con Kp de heading
+  sobre el yaw de ``/odom_raw``, en vez de simplemente anular la
+  correccion -- evita que un sesgo mecanico del chasis lo desvie
+  lentamente sin que nada lo corrija.
+- **Pared demasiado cerca para medir:** se detecta con la ULTIMA
+  distancia valida conocida (``_ultima_distancia_valida``) -- si era
+  menor a ``umbral_muy_cerca_m`` justo antes de perder la lectura, es
+  mucho mas probable que el robot se haya acercado demasiado que que
+  el pasillo se haya abierto de repente. En ese caso se gira
+  activamente lejos de la pared (angular maximo) en vez de mantener
+  rumbo -- si no, el robot no corrige nada y, si el rumbo apunta un
+  poco hacia afuera, se aleja sin control y nunca vuelve (bug real
+  encontrado y corregido probando en el robot, validado en
+  ``sim_local/`` con un empujon manual gradual antes de portarlo aqui).
 
 Modo de prueba (``publicar_directo_en_cmd_vel``): para calibrar SOLO el
 seguimiento recto, sin que ``state_machine_node`` interrumpa con fases
@@ -61,6 +76,7 @@ class WallFollowerNode(Node):
         self.declare_parameter('ganancia_distancia', 2.0)
         self.declare_parameter('ganancia_heading', 2.0)
         self.declare_parameter('angular_max_radps', 0.6)
+        self.declare_parameter('umbral_muy_cerca_m', 0.06)
         self.declare_parameter('frente_minimo_seguro_m', 0.15)
         self.declare_parameter('cmd_vel_topic', '/cmd_vel')
         self.declare_parameter('publicar_directo_en_cmd_vel', False)
@@ -74,11 +90,13 @@ class WallFollowerNode(Node):
         self._k_distancia = float(self.get_parameter('ganancia_distancia').value)
         self._k_heading = float(self.get_parameter('ganancia_heading').value)
         self._angular_max = float(self.get_parameter('angular_max_radps').value)
+        self._umbral_muy_cerca = float(self.get_parameter('umbral_muy_cerca_m').value)
         self._frente_minimo = float(self.get_parameter('frente_minimo_seguro_m').value)
         self._publicar_directo = bool(self.get_parameter('publicar_directo_en_cmd_vel').value)
 
         self._yaw = 0.0
         self._heading_objetivo = None
+        self._ultima_distancia_valida = None
 
         self._pub = self.create_publisher(Twist, self._output_topic, 10)
         self._cmd_vel_pub = None
@@ -119,6 +137,23 @@ class WallFollowerNode(Node):
             return
 
         if not msg.right_line_valid:
+            muy_cerca = (
+                self._ultima_distancia_valida is not None
+                and self._ultima_distancia_valida < self._umbral_muy_cerca
+            )
+            if muy_cerca:
+                # Probablemente el robot se acerco demasiado a la pared
+                # derecha (mas cerca que el rango minimo del LiDAR) en
+                # vez de que el pasillo se haya abierto de repente.
+                # Girar activamente lejos hasta recuperar una lectura
+                # valida -- mantener rumbo aqui (como en el caso
+                # "pasillo abierto") dejaria al robot sin corregir nada.
+                self._heading_objetivo = None
+                cmd.linear.x = self._v_base
+                cmd.angular.z = self._angular_max
+                self._publish(cmd)
+                return
+
             # Sin referencia confiable de pared derecha (pasillo abierto):
             # mantener el rumbo con un Kp de heading sobre el yaw de
             # odometria, en vez de simplemente anular la correccion (eso
@@ -135,8 +170,10 @@ class WallFollowerNode(Node):
 
         # Hay pared derecha valida: al recuperarla, olvidar el heading
         # objetivo anterior para que la proxima vez que se pierda la
-        # pared se capture un rumbo fresco (no uno desactualizado).
+        # pared se capture un rumbo fresco (no uno desactualizado), y
+        # guardar esta distancia como la ultima valida conocida.
         self._heading_objetivo = None
+        self._ultima_distancia_valida = msg.right_line_distance_m
 
         # Correccion de angulo y distancia SUMADAS (no alternadas -- ver
         # nota del modulo). Geometria del termino de angulo (verificada

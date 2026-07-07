@@ -78,6 +78,7 @@ def main():
 
     pose = Pose(x=0.15, y=0.0, theta=0.0)
     heading_objetivo = None
+    ultima_distancia_valida = None
     rng = np.random.default_rng(0)
 
     trayectoria_x, trayectoria_y = [pose.x], [pose.y]
@@ -101,7 +102,9 @@ def main():
                 range_min=RANGE_MIN, range_max=RANGE_MAX, min_puntos=6,
             )
 
-            v, w, heading_objetivo = calcular_comando(ajuste, pose.theta, heading_objetivo, params)
+            v, w, heading_objetivo, ultima_distancia_valida = calcular_comando(
+                ajuste, pose.theta, heading_objetivo, ultima_distancia_valida, params
+            )
             pose = integrar(pose, v, w, DT)
             trayectoria_x.append(pose.x)
             trayectoria_y.append(pose.y)

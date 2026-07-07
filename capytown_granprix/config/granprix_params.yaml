@@ -75,6 +75,13 @@ wall_follower:
     ganancia_heading: 2.0
     angular_max_radps: 0.6
 
+    # Si se pierde la pared derecha y la ultima distancia valida
+    # conocida era menor a esto, se asume "pared demasiado cerca para
+    # medir" (el LiDAR tiene un rango minimo, ~3 cm) y se gira
+    # activamente lejos, en vez de mantener rumbo como con un pasillo
+    # genuinamente abierto. Ver nota larga en wall_follower_node.py.
+    umbral_muy_cerca_m: 0.06
+
     # Si el frente esta mas cerca que esto, no avanzar aunque el
     # estado siga siendo AVANZAR_PARALELO (seguridad redundante).
     frente_minimo_seguro_m: 0.15
