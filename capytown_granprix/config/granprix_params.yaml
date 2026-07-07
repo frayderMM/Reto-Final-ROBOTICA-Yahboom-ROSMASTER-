@@ -54,9 +54,11 @@ wall_follower:
     # siempre en promedio (el robot mide 8 cm de medio-ancho); 12 cm da
     # el mejor margen real sin choque (~2.5 cm minimo) con la menor
     # oscilacion. Correccion CONTINUA hacia el objetivo (sin banda
-    # muerta) para mantener una distancia consistente.
+    # muerta) para mantener una distancia consistente. Angulo y
+    # distancia se corrigen SUMADOS (no alternados): alternar entre
+    # "solo angulo" y "solo distancia" crea una oscilacion que nunca
+    # se amortigua (verificado en sim_local/, ±1.4 cm indefinido).
     distancia_objetivo_m: 0.12
-    tolerancia_angulo_deg: 3.0
 
     velocidad_lineal_mps: 0.15
     # ganancia_angulo ahora actua sobre RADIANES (angulo de la recta

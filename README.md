@@ -329,14 +329,24 @@ mucho más robusto al ruido, porque un solo punto malo pesa poco entre
 decenas. El resultado (`right_line_angle_rad`, `right_line_distance_m`,
 `right_line_valid` en `/lidar_zones`) es lo que usa `wall_follower`:
 
-1. **Prioridad 1 — ángulo:** si `|right_line_angle_rad| >
-   tolerancia_angulo_deg`, corrige el paralelismo con
-   `angular.z = ganancia_angulo * right_line_angle_rad` (**sin signo
-   negativo** — ver nota de signo abajo).
-2. **Prioridad 2 — distancia:** si ya está paralelo, corrige de forma
-   **continua** (no hay banda muerta) hacia `distancia_objetivo_m` con
-   `angular.z = ganancia_distancia * (distancia_objetivo_m -
-   right_line_distance_m)`.
+Corrige **ángulo y distancia a la vez** (suma, no alternando entre uno
+u otro):
+
+```text
+error_distancia = distancia_objetivo_m - right_line_distance_m
+angular.z = ganancia_angulo * right_line_angle_rad
+           + ganancia_distancia * error_distancia
+```
+
+(**sin signo negativo** en el término de ángulo — ver nota de signo
+abajo). La primera versión alternaba ("si el ángulo está mal, corregir
+*solo* ángulo; si no, corregir *solo* distancia"), pero eso crea un
+ciclo que nunca se amortigua: cada corrección de distancia gira el
+robot, lo que induce un error de ángulo, que dispara la corrección de
+ángulo, que vuelve a inducir error de distancia — oscilación sostenida
+de ±1.4 cm verificada en el simulador. Sumar ambas correcciones en el
+mismo ciclo de control converge de verdad (std < 0.01 cm en la cola
+del recorrido simulado).
 
 Sin pared derecha de referencia (pasillo abierto), mantiene el rumbo
 con un **Kp de heading** sobre el yaw de `/odom_raw` (`ganancia_heading`):

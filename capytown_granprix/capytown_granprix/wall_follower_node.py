@@ -10,13 +10,15 @@ evita que dos nodos publiquen comandos de movimiento en simultaneo.
 
 Logica de control -- REGRESION DE LINEA + Kp (``right_line_*`` de
 ``lidar_processor_node``, ajuste por minimos cuadrados a todos los
-puntos del lado derecho, no solo 2 como el metodo original de
-S1/S2). Se corrige primero el ANGULO de la recta (paralelismo) y
-despues la DISTANCIA perpendicular hacia ``distancia_objetivo_m``,
-igual prioridad que el metodo de 2 puntos pero mas robusto al ruido.
-Validado antes en ``sim_local/`` (simulador local sin ROS2) --
-incluye la derivacion geometrica del signo de la correccion de
-angulo, ver comentario en ``_on_zones``.
+puntos del lado derecho, no solo 2 como el metodo original de S1/S2).
+Se corrigen el ANGULO de la recta (paralelismo) y la DISTANCIA
+perpendicular hacia ``distancia_objetivo_m`` SIMULTANEAMENTE (suma
+ponderada), no alternando entre uno u otro -- alternar crea un ciclo
+que no se amortigua (cada correccion de distancia induce un error de
+angulo al girar, que dispara la correccion de angulo, que vuelve a
+inducir error de distancia). Validado en ``sim_local/`` (simulador
+local sin ROS2): alternando oscilaba ±1.4 cm indefinidamente; sumando
+converge con std < 0.01 cm.
 
 Convencion de signos de angular.z (REP-103): positivo = giro hacia la
 izquierda (antihorario), negativo = giro hacia la derecha (horario).
@@ -34,8 +36,6 @@ correr unicamente ``lidar_processor_node`` + ``wall_follower_node`` en
 un pasillo largo. NO usar este modo junto con ``state_machine_node``
 corriendo (dos nodos escribirian en ``/cmd_vel`` a la vez).
 """
-
-import math
 
 import rclpy
 from rclpy.node import Node
@@ -56,7 +56,6 @@ class WallFollowerNode(Node):
         self.declare_parameter('odom_topic', '/odom_raw')
         self.declare_parameter('output_topic', '/wall_follow/cmd_vel_suggestion')
         self.declare_parameter('distancia_objetivo_m', 0.12)
-        self.declare_parameter('tolerancia_angulo_deg', 3.0)
         self.declare_parameter('velocidad_lineal_mps', 0.15)
         self.declare_parameter('ganancia_angulo', 2.0)
         self.declare_parameter('ganancia_distancia', 2.0)
@@ -70,9 +69,6 @@ class WallFollowerNode(Node):
         self._odom_topic = self.get_parameter('odom_topic').value
         self._output_topic = self.get_parameter('output_topic').value
         self._distancia_objetivo = float(self.get_parameter('distancia_objetivo_m').value)
-        self._tolerancia_angulo_rad = math.radians(
-            float(self.get_parameter('tolerancia_angulo_deg').value)
-        )
         self._v_base = float(self.get_parameter('velocidad_lineal_mps').value)
         self._k_angulo = float(self.get_parameter('ganancia_angulo').value)
         self._k_distancia = float(self.get_parameter('ganancia_distancia').value)
@@ -142,27 +138,21 @@ class WallFollowerNode(Node):
         # pared se capture un rumbo fresco (no uno desactualizado).
         self._heading_objetivo = None
 
-        if abs(msg.right_line_angle_rad) > self._tolerancia_angulo_rad:
-            # 1. Prioridad: corregir paralelismo antes que distancia.
-            #
-            # Geometria (derivada y verificada en sim_local/ antes de
-            # portarla aqui): si la pared es una recta horizontal en el
-            # mundo y el robot tiene yaw theta respecto a ella, el
-            # angulo que se ve EN EL MARCO DEL ROBOT es
-            # right_line_angle_rad = atan(pendiente_local) = -theta.
-            # Para corregir theta -> 0 se necesita angular.z = -k*theta
-            # = +k*right_line_angle_rad (SIN signo negativo). Con el
-            # signo cambiado, el lazo es de realimentacion POSITIVA y
-            # el robot diverge en menos de 1 s.
-            correccion = self._k_angulo * msg.right_line_angle_rad
-        else:
-            # 2. Ya esta paralelo: corregir distancia hacia el objetivo
-            # (correccion continua, sin banda muerta -- una banda deja
-            # al robot "flotar" sin corregir mientras este adentro, lo
-            # que en la practica se ve como que no mantiene una
-            # distancia consistente).
-            error_distancia = self._distancia_objetivo - msg.right_line_distance_m
-            correccion = self._k_distancia * error_distancia
+        # Correccion de angulo y distancia SUMADAS (no alternadas -- ver
+        # nota del modulo). Geometria del termino de angulo (verificada
+        # en sim_local/ antes de portarla aqui): si la pared es una
+        # recta horizontal en el mundo y el robot tiene yaw theta
+        # respecto a ella, el angulo que se ve EN EL MARCO DEL ROBOT es
+        # right_line_angle_rad = atan(pendiente_local) = -theta. Para
+        # corregir theta -> 0 se necesita angular.z = -k*theta =
+        # +k*right_line_angle_rad (SIN signo negativo). Con el signo
+        # cambiado, el lazo es de realimentacion POSITIVA y el robot
+        # diverge en menos de 1 s.
+        error_distancia = self._distancia_objetivo - msg.right_line_distance_m
+        correccion = (
+            self._k_angulo * msg.right_line_angle_rad
+            + self._k_distancia * error_distancia
+        )
 
         cmd.linear.x = self._v_base
         cmd.angular.z = clamp(correccion, -self._angular_max, self._angular_max)

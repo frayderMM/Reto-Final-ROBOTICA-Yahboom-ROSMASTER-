@@ -62,7 +62,6 @@ def ajustar_linea_pared(
 @dataclass
 class ParametrosControl:
     distancia_objetivo_m: float = 0.07
-    tolerancia_angulo_rad: float = math.radians(3.0)
     velocidad_lineal_mps: float = 0.15
     ganancia_angulo: float = 2.0       # Kp sobre radianes (escala distinta a la version de 2 puntos)
     ganancia_distancia: float = 2.0    # Kp sobre metros
@@ -82,10 +81,15 @@ def calcular_comando(
 ) -> Tuple[float, float, Optional[float]]:
     """Calcula (linear_x, angular_z, nuevo_heading_objetivo).
 
-    Misma prioridad que la version de 2 puntos: si hay pared, corregir
-    angulo primero y despues distancia (correccion continua hacia
-    ``distancia_objetivo_m``, sin banda muerta); si no hay pared,
-    mantener rumbo con Kp de heading sobre el yaw.
+    Si hay pared, corrige angulo Y distancia SIMULTANEAMENTE (suma
+    ponderada), no alternando entre uno u otro. Alternar (corregir solo
+    angulo, luego solo distancia) crea un ciclo que no se amortigua:
+    cada correccion de distancia induce un error de angulo (al girar
+    cambia el heading), que dispara la correccion de angulo, que vuelve
+    a inducir error de distancia -- oscilacion sostenida verificada en
+    sim_local/ (±1.4 cm indefinidamente, nunca se asienta). La suma
+    simultanea sí converge (std < 0.01 cm en la cola del recorrido).
+    Si no hay pared, mantener rumbo con Kp de heading sobre el yaw.
     """
     if ajuste is None:
         if heading_objetivo is None:
@@ -99,19 +103,15 @@ def calcular_comando(
     # proxima vez que se pierda la pared).
     heading_objetivo = None
 
-    if abs(ajuste.angulo_rad) > params.tolerancia_angulo_rad:
-        # Geometria: si la pared (horizontal en el mundo) se ve en el
-        # marco del robot con pendiente m, entonces angulo_rad =
-        # atan(m) = -theta_mundo (para un robot casi paralelo). Para
-        # corregir theta_mundo -> 0 se necesita w = -k*theta_mundo =
-        # +k*angulo_rad (sin signo negativo). Con el signo cambiado
-        # (como estaba antes) el lazo es de realimentacion POSITIVA y
-        # el robot diverge en menos de 1 s -- se verifico con el
-        # simulador local antes de portar esto al robot real.
-        correccion = params.ganancia_angulo * ajuste.angulo_rad
-    else:
-        error_distancia = params.distancia_objetivo_m - ajuste.distancia_m
-        correccion = params.ganancia_distancia * error_distancia
+    # Geometria: si la pared (horizontal en el mundo) se ve en el marco
+    # del robot con pendiente m, entonces angulo_rad = atan(m) =
+    # -theta_mundo (para un robot casi paralelo). Para corregir
+    # theta_mundo -> 0 se necesita w = -k*theta_mundo = +k*angulo_rad
+    # (sin signo negativo). Con el signo cambiado el lazo es de
+    # realimentacion POSITIVA y el robot diverge en menos de 1 s --
+    # verificado en sim_local/ antes de portar esto al robot real.
+    error_distancia = params.distancia_objetivo_m - ajuste.distancia_m
+    correccion = params.ganancia_angulo * ajuste.angulo_rad + params.ganancia_distancia * error_distancia
 
     angular = _clamp(correccion, -params.angular_max_radps, params.angular_max_radps)
     return params.velocidad_lineal_mps, angular, heading_objetivo
