@@ -27,7 +27,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Polygon
 
-from environment import escanear, pasillo_esquina_giro_derecha, pasillo_esquina_concava_derecha
+from environment import (
+    escanear,
+    pasillo_esquina_giro_derecha,
+    pasillo_esquina_concava_derecha,
+    pasillo_frente_bloqueado_gira_izquierda,
+)
 from robot_model import Pose, integrar
 from wall_follow_control import ParametrosControl, ajustar_linea_pared, calcular_comando
 from turn_control import ParametrosGiro, calcular_comando_giro, calcular_objetivo_giro
@@ -64,9 +69,11 @@ def parse_args():
                     help='ventana angular (grados) para el chequeo de "derecha libre" en el cruce')
     p.add_argument('--largo-robot', type=float, default=0.24)
     p.add_argument('--ancho-robot', type=float, default=0.16)
-    p.add_argument('--tipo-esquina', choices=['convexa', 'concava'], default='convexa',
+    p.add_argument('--tipo-esquina', choices=['convexa', 'concava', 'frente_izquierda'],
+                    default='convexa',
                     help='convexa: la pared se proyecta hacia el robot al girar (exterior). '
-                         'concava: el espacio se abre al girar (interior).')
+                         'concava: el espacio se abre al girar (interior). '
+                         'frente_izquierda: fondo ciego (como C4->D4 real), gira a la IZQUIERDA.')
     p.add_argument('--retranqueo', type=float, default=None,
                     help='solo para --tipo-esquina concava: cuanto se retranquea la pared del '
                          'segundo tramo (m, por defecto medio ancho de pasillo)')
@@ -106,6 +113,8 @@ def main():
         pasillo = pasillo_esquina_concava_derecha(
             celda_m=args.celda, ancho_m=args.ancho, retranqueo_m=args.retranqueo
         )
+    elif args.tipo_esquina == 'frente_izquierda':
+        pasillo = pasillo_frente_bloqueado_gira_izquierda(celda_m=args.celda, ancho_m=args.ancho)
     else:
         pasillo = pasillo_esquina_giro_derecha(celda_m=args.celda, ancho_m=args.ancho)
 
@@ -237,8 +246,12 @@ def _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado, decision_info, 
     info = f'estado={estado}\n{decision_info}'
     ax.set_title(info, fontsize=9, color=color_estado)
 
-    ax.set_xlim(-0.6, 1.4)
-    ax.set_ylim(-1.4, 0.6)
+    if args.tipo_esquina == 'frente_izquierda':
+        ax.set_xlim(-0.6, 1.4)
+        ax.set_ylim(-0.6, 1.4)
+    else:
+        ax.set_xlim(-0.6, 1.4)
+        ax.set_ylim(-1.4, 0.6)
     ax.set_aspect('equal')
     ax.grid(True, linestyle=':', alpha=0.4)
 

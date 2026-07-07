@@ -241,6 +241,45 @@ def pasillo_esquina_concava_derecha(
     return p
 
 
+def pasillo_frente_bloqueado_gira_izquierda(
+    celda_m: float = 0.60,
+    ancho_m: float = 0.60,
+    x_inicio: float = 0.0,
+    celdas_cierre: float = 2.0,
+) -> Pasillo:
+    """Corredor recto (robot avanza en +x, pared derecha en -y) que
+    termina en un FONDO CIEGO: una pared frontal cierra todo el ancho
+    de la celda (igual que V01 en el laberinto real, entre C4 y D4).
+    Ni derecha (perimetral, sin salida) ni frente tienen paso -- solo
+    la izquierda esta abierta (como C4 -> C3), asi que el robot debe
+    frenar cerca de la pared frontal y girar 90 grados a la IZQUIERDA.
+
+    Sin pared izquierda cerca de la esquina (la salida real esta
+    abierta ahi); se agrega solo un cierre lejano hacia el norte para
+    que "izquierda libre" de una lectura valida y finita en vez de
+    infinito (mismo motivo que en ``pasillo_esquina_concava_derecha``).
+    """
+    p = Pasillo()
+
+    y_der_0 = -ancho_m / 2.0
+    y_izq_0 = ancho_m / 2.0
+    x_frente = x_inicio + celda_m
+
+    # Pared derecha (la que el robot sigue).
+    p.agregar(x_inicio, y_der_0, x_frente, y_der_0)
+
+    # Pared frontal: cierra TODO el ancho de la celda (fondo ciego).
+    p.agregar(x_frente, y_der_0, x_frente, y_izq_0)
+
+    # Cierre lejano hacia la izquierda/norte (limite del laberinto
+    # real un par de celdas mas alla de la salida abierta).
+    if celdas_cierre > 0:
+        y_lejos = y_izq_0 + celdas_cierre * celda_m
+        p.agregar(x_inicio, y_lejos, x_frente, y_lejos)
+
+    return p
+
+
 def pasillo_laberinto_completo() -> Pasillo:
     """Laberinto completo Gran Prix CapyTown, coordenadas EXACTAS de
     DETALLE_PISTA.md (centimetros -> metros, /100). Origen (0,0) en la
