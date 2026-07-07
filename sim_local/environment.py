@@ -129,3 +129,143 @@ def pasillo_recto_con_quiebre(
     p.agregar(0.0, y_izq, largo_m, y_izq)
 
     return p
+
+
+def pasillo_esquina_giro_derecha(
+    celda_m: float = 0.60,
+    ancho_m: float = 0.60,
+    x_inicio: float = 0.0,
+    largo_pared_izq: Optional[float] = None,
+    celdas_cierre: float = 2.0,
+) -> Pasillo:
+    """Corredor recto de una celda (robot avanza en +x) cuya pared
+    derecha "dobla la esquina" y continua como pared derecha de un
+    SEGUNDO corredor perpendicular hacia -y (equivalente a un giro a
+    la derecha real en el laberinto). Pared izquierda solo en el
+    primer tramo (para no interferir con la deteccion de "izquierda
+    libre" en el cruce).
+
+    Incluye un cierre lejano (pared perpendicular a ``celdas_cierre``
+    celdas del cruce) para que "frente libre"/"izquierda libre" den
+    lecturas validas y finitas en vez de infinito -- en el laberinto
+    real siempre hay una pared dentro del alcance del LiDAR (maze
+    acotado); un pasillo de prueba totalmente abierto no es realista.
+    """
+    p = Pasillo()
+
+    y_der_0 = -ancho_m / 2.0
+    x_esquina = x_inicio + celda_m
+
+    # Pared derecha del primer corredor + su continuacion doblando la
+    # esquina (una sola pared en L, como en el laberinto real).
+    p.agregar(x_inicio, y_der_0, x_esquina, y_der_0)
+    p.agregar(x_esquina, y_der_0, x_esquina, y_der_0 - celda_m)
+
+    # Pared izquierda del primer corredor (para que "izquierda" no se
+    # vea libre por error mientras aun esta en el tramo recto).
+    largo_izq = largo_pared_izq if largo_pared_izq is not None else celda_m
+    y_izq = ancho_m / 2.0
+    p.agregar(x_inicio, y_izq, x_inicio + largo_izq, y_izq)
+
+    # Cierre lejano: pared perpendicular delante del cruce, simulando
+    # la siguiente pared del laberinto real (no vacio infinito).
+    if celdas_cierre > 0:
+        x_lejos = x_esquina + celdas_cierre * celda_m
+        p.agregar(x_lejos, y_izq, x_lejos, y_der_0 - celda_m)
+
+    return p
+
+
+def pasillo_esquina_concava_derecha(
+    celda_m: float = 0.60,
+    ancho_m: float = 0.60,
+    x_inicio: float = 0.0,
+    retranqueo_m: Optional[float] = None,
+    largo_pared_izq: Optional[float] = None,
+    celdas_cierre: float = 2.0,
+) -> Pasillo:
+    """Corredor recto de una celda (robot avanza en +x) que gira a la
+    derecha hacia una esquina CONCAVA/interior: la pared derecha del
+    segundo corredor NO continua desde el mismo punto donde termina la
+    primera (eso seria una esquina convexa/exterior, ver
+    ``pasillo_esquina_giro_derecha``, donde la pared se "proyecta"
+    hacia el robot). Aqui la pared del segundo corredor esta
+    RETRANQUEADA hacia adentro: el espacio se ABRE al girar, como la
+    esquina interior de una habitacion en L, dejando mas margen para
+    el giro.
+
+    Incluye el mismo cierre lejano que ``pasillo_esquina_giro_derecha``
+    (ver docstring alli) para evitar lecturas invalidas por "infinito".
+    """
+    p = Pasillo()
+
+    y_der_0 = -ancho_m / 2.0
+    x_esquina = x_inicio + celda_m
+    # Por defecto, el hueco mide una celda completa (60cm): asi coincide
+    # con la resolucion real del laberinto en grilla, donde toda abertura
+    # es de al menos una celda. Un hueco mas angosto que el paso entre
+    # chequeos de DECIDIR (~celda-margen_avance) puede saltarse por
+    # completo sin ser muestreado -- ver hallazgo de calibracion.
+    retranqueo = retranqueo_m if retranqueo_m is not None else celda_m
+
+    # Pared derecha del primer corredor (NO dobla la esquina, termina limpia).
+    p.agregar(x_inicio, y_der_0, x_esquina, y_der_0)
+
+    # Pared derecha del segundo corredor, retranqueada MAS ALLA de la
+    # esquina (se aleja del robot en vez de proyectarse hacia el), asi
+    # se abre un hueco en L justo donde el robot decide (x_esquina a
+    # x_pared2) en vez de un hueco "detras" que el DECIDIR nunca ve.
+    x_pared2 = x_esquina + retranqueo
+    p.agregar(x_pared2, y_der_0, x_pared2, y_der_0 - celda_m)
+
+    # Pared izquierda del primer corredor.
+    largo_izq = largo_pared_izq if largo_pared_izq is not None else celda_m
+    y_izq = ancho_m / 2.0
+    p.agregar(x_inicio, y_izq, x_inicio + largo_izq, y_izq)
+
+    # Cierre lejano (ver docstring de pasillo_esquina_giro_derecha).
+    if celdas_cierre > 0:
+        x_lejos = x_esquina + celdas_cierre * celda_m
+        p.agregar(x_lejos, y_izq, x_lejos, y_der_0 - celda_m)
+
+        # Cierre SUR del hueco concavo: sin esto, un rayo lateral hacia
+        # la abertura no encuentra ninguna pared dentro del alcance del
+        # LiDAR y la lectura vuelve "invalida" (igual que "sin pared" en
+        # DECIDIR), lo cual NO representa el laberinto real (acotado a
+        # 3.6x2.4m, siempre hay una pared dentro de rango). Se cierra a
+        # la misma distancia que celdas_cierre, simulando la pared del
+        # laberinto un par de celdas mas alla de la abertura.
+        y_sur = y_der_0 - celdas_cierre * celda_m
+        p.agregar(x_esquina, y_sur, x_lejos, y_sur)
+
+    return p
+
+
+def pasillo_laberinto_completo() -> Pasillo:
+    """Laberinto completo Gran Prix CapyTown, coordenadas EXACTAS de
+    DETALLE_PISTA.md (centimetros -> metros, /100). Origen (0,0) en la
+    esquina superior izquierda, X crece a la derecha (0-360cm), Y
+    crece hacia ABAJO (0-240cm) -- igual convencion que el plano
+    oficial. Inicio en A4 (centro aprox. x=0.30 y=2.10), meta en F1.
+    """
+    segmentos_cm = [
+        # Paredes perimetrales (P01-P18)
+        (0, 0, 60, 0), (60, 0, 120, 0), (120, 0, 180, 0),
+        (180, 0, 240, 0), (240, 0, 300, 0), (300, 0, 360, 0),
+        (0, 240, 60, 240), (60, 240, 120, 240), (120, 240, 180, 240),
+        (180, 240, 240, 240), (240, 240, 300, 240), (300, 240, 360, 240),
+        (0, 0, 0, 60), (0, 60, 0, 120), (0, 120, 0, 180),
+        (360, 60, 360, 120), (360, 120, 360, 180), (360, 180, 360, 240),
+        # Paredes internas verticales (V01-V06)
+        (180, 180, 180, 240), (60, 120, 60, 180), (240, 120, 240, 180),
+        (180, 60, 180, 120), (300, 60, 300, 120), (120, 0, 120, 60),
+        # Paredes internas horizontales (H01-H06)
+        (60, 60, 120, 60), (120, 120, 180, 120), (180, 120, 240, 120),
+        (240, 60, 300, 60), (240, 180, 300, 180), (300, 180, 360, 180),
+        # Obstaculos parciales (S01-S02, 30 cm)
+        (120, 180, 120, 210), (270, 150, 300, 150),
+    ]
+    p = Pasillo()
+    for x1, y1, x2, y2 in segmentos_cm:
+        p.agregar(x1 / 100.0, y1 / 100.0, x2 / 100.0, y2 / 100.0)
+    return p
