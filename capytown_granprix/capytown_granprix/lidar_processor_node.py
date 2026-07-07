@@ -2,23 +2,35 @@
 """Nodo de lectura LiDAR.
 
 Se suscribe a ``/scan`` (sensor_msgs/LaserScan, LiDAR MS200) y publica
-``/lidar_zones`` (capytown_interfaces/LidarZones) con la distancia
-minima detectada en cada zona angular de interes: frente, derecha
-delantera (S1), derecha lateral, derecha trasera (S2) e izquierda.
+``/lidar_zones`` (capytown_interfaces/LidarZones) con:
+
+- la distancia minima detectada en cada zona angular de interes
+  (frente, derecha delantera S1, derecha lateral, derecha trasera S2,
+  izquierda) -- metodo de 2 puntos, usado por ALINEAR;
+- un ajuste de RECTA por regresion a todos los puntos del lado
+  derecho (``right_line_*``) -- metodo principal usado por
+  ``wall_follower_node``, mucho mas robusto al ruido que 2 puntos
+  sueltos (validado en ``sim_local/`` antes de portarlo aqui).
 
 Este nodo NO decide nada: solo traduce la nube de puntos 360 grados en
-cinco numeros que los demas nodos (wall_follower, state_machine)
+los numeros que los demas nodos (wall_follower, state_machine)
 consumen. Mantenerlo asi facilita calibrar el LiDAR (offset de
 montaje, inversion izquierda/derecha) sin tocar la logica de control.
 """
 
+import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSPresetProfiles
 from sensor_msgs.msg import LaserScan
 
 from capytown_interfaces.msg import LidarZones
-from capytown_granprix.lidar_utils import ZoneWindow, compute_all_zones
+from capytown_granprix.lidar_utils import (
+    ZoneWindow,
+    compute_robot_frame_angles,
+    compute_zone_distance,
+    fit_wall_line,
+)
 
 
 class LidarProcessorNode(Node):
@@ -36,6 +48,8 @@ class LidarProcessorNode(Node):
         self.declare_parameter('right_window_deg', [-110.0, -70.0])
         self.declare_parameter('right_rear_window_deg', [-135.0, -105.0])
         self.declare_parameter('left_window_deg', [70.0, 110.0])
+        self.declare_parameter('right_side_window_deg', [-135.0, -45.0])
+        self.declare_parameter('min_puntos_linea', 6)
 
         self._scan_topic = self.get_parameter('scan_topic').value
         self._output_topic = self.get_parameter('output_topic').value
@@ -50,6 +64,8 @@ class LidarProcessorNode(Node):
             'right_rear': ZoneWindow(*self.get_parameter('right_rear_window_deg').value),
             'left': ZoneWindow(*self.get_parameter('left_window_deg').value),
         }
+        self._right_side_window = ZoneWindow(*self.get_parameter('right_side_window_deg').value)
+        self._min_puntos_linea = int(self.get_parameter('min_puntos_linea').value)
 
         self._pub = self.create_publisher(
             LidarZones, self._output_topic, QoSPresetProfiles.SENSOR_DATA.value
@@ -66,36 +82,28 @@ class LidarProcessorNode(Node):
 
     def _on_scan(self, msg: LaserScan) -> None:
         range_max_use = min(msg.range_max, self._max_range_use_m)
-        zones = compute_all_zones(
-            ranges=msg.ranges,
-            angle_min=msg.angle_min,
-            angle_increment=msg.angle_increment,
-            range_min=msg.range_min,
-            range_max=range_max_use,
-            front_offset_rad=self._front_offset_rad,
-            sign=self._sign,
-            windows=self._windows,
+        ranges = np.asarray(msg.ranges, dtype=float)
+        robot_angles = compute_robot_frame_angles(
+            ranges, msg.angle_min, msg.angle_increment, self._front_offset_rad, self._sign
         )
 
         out = LidarZones()
         out.header = msg.header
 
-        front_d, front_v = zones['front']
-        rf_d, rf_v = zones['right_front']
-        r_d, r_v = zones['right']
-        rr_d, rr_v = zones['right_rear']
-        left_d, left_v = zones['left']
+        for name in ('front', 'right_front', 'right', 'right_rear', 'left'):
+            distancia, valido = compute_zone_distance(
+                ranges, robot_angles, msg.range_min, range_max_use, self._windows[name]
+            )
+            setattr(out, name, distancia)
+            setattr(out, f'{name}_valid', valido)
 
-        out.front = front_d
-        out.front_valid = front_v
-        out.right_front = rf_d
-        out.right_front_valid = rf_v
-        out.right = r_d
-        out.right_valid = r_v
-        out.right_rear = rr_d
-        out.right_rear_valid = rr_v
-        out.left = left_d
-        out.left_valid = left_v
+        angulo, distancia_linea, valido_linea = fit_wall_line(
+            ranges, robot_angles, msg.range_min, range_max_use,
+            self._right_side_window, self._min_puntos_linea,
+        )
+        out.right_line_angle_rad = angulo
+        out.right_line_distance_m = distancia_linea
+        out.right_line_valid = valido_linea
 
         self._pub.publish(out)
 

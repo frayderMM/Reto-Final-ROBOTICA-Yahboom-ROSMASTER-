@@ -8,11 +8,15 @@ NO escribe directamente en ``/cmd_vel``: el nodo de decision
 reenvia esta sugerencia mientras el estado sea AVANZAR_PARALELO. Esto
 evita que dos nodos publiquen comandos de movimiento en simultaneo.
 
-Logica de control (ver logica_pared_derecha_robot.md, secciones 6-8 y
-19): se usan dos zonas del lado derecho -- S1 (right_front) y S2
-(right_rear) -- para mantener al robot PARALELO a la pared antes de
-corregir la distancia. Corregir el angulo primero evita que el robot
-entre en diagonal.
+Logica de control -- REGRESION DE LINEA + Kp (``right_line_*`` de
+``lidar_processor_node``, ajuste por minimos cuadrados a todos los
+puntos del lado derecho, no solo 2 como el metodo original de
+S1/S2). Se corrige primero el ANGULO de la recta (paralelismo) y
+despues la DISTANCIA perpendicular hacia ``distancia_objetivo_m``,
+igual prioridad que el metodo de 2 puntos pero mas robusto al ruido.
+Validado antes en ``sim_local/`` (simulador local sin ROS2) --
+incluye la derivacion geometrica del signo de la correccion de
+angulo, ver comentario en ``_on_zones``.
 
 Convencion de signos de angular.z (REP-103): positivo = giro hacia la
 izquierda (antihorario), negativo = giro hacia la derecha (horario).
@@ -30,6 +34,8 @@ correr unicamente ``lidar_processor_node`` + ``wall_follower_node`` en
 un pasillo largo. NO usar este modo junto con ``state_machine_node``
 corriendo (dos nodos escribirian en ``/cmd_vel`` a la vez).
 """
+
+import math
 
 import rclpy
 from rclpy.node import Node
@@ -49,11 +55,10 @@ class WallFollowerNode(Node):
         self.declare_parameter('lidar_zones_topic', '/lidar_zones')
         self.declare_parameter('odom_topic', '/odom_raw')
         self.declare_parameter('output_topic', '/wall_follow/cmd_vel_suggestion')
-        self.declare_parameter('distancia_min_m', 0.07)
-        self.declare_parameter('distancia_max_m', 0.10)
-        self.declare_parameter('tolerancia_angulo_m', 0.03)
+        self.declare_parameter('distancia_objetivo_m', 0.12)
+        self.declare_parameter('tolerancia_angulo_deg', 3.0)
         self.declare_parameter('velocidad_lineal_mps', 0.15)
-        self.declare_parameter('ganancia_angulo', 3.0)
+        self.declare_parameter('ganancia_angulo', 2.0)
         self.declare_parameter('ganancia_distancia', 2.0)
         self.declare_parameter('ganancia_heading', 2.0)
         self.declare_parameter('angular_max_radps', 0.6)
@@ -64,9 +69,10 @@ class WallFollowerNode(Node):
         self._zones_topic = self.get_parameter('lidar_zones_topic').value
         self._odom_topic = self.get_parameter('odom_topic').value
         self._output_topic = self.get_parameter('output_topic').value
-        self._distancia_min = float(self.get_parameter('distancia_min_m').value)
-        self._distancia_max = float(self.get_parameter('distancia_max_m').value)
-        self._tolerancia_angulo = float(self.get_parameter('tolerancia_angulo_m').value)
+        self._distancia_objetivo = float(self.get_parameter('distancia_objetivo_m').value)
+        self._tolerancia_angulo_rad = math.radians(
+            float(self.get_parameter('tolerancia_angulo_deg').value)
+        )
         self._v_base = float(self.get_parameter('velocidad_lineal_mps').value)
         self._k_angulo = float(self.get_parameter('ganancia_angulo').value)
         self._k_distancia = float(self.get_parameter('ganancia_distancia').value)
@@ -94,7 +100,7 @@ class WallFollowerNode(Node):
         self.create_subscription(Odometry, self._odom_topic, self._on_odom, 10)
 
         self.get_logger().info(
-            f'wall_follower listo: rango={self._distancia_min:.2f}-{self._distancia_max:.2f} m, '
+            f'wall_follower listo: objetivo={self._distancia_objetivo * 100:.1f} cm, '
             f'v_base={self._v_base:.2f} m/s'
         )
 
@@ -116,7 +122,7 @@ class WallFollowerNode(Node):
             self._publish(cmd)
             return
 
-        if not (msg.right_front_valid and msg.right_rear_valid):
+        if not msg.right_line_valid:
             # Sin referencia confiable de pared derecha (pasillo abierto):
             # mantener el rumbo con un Kp de heading sobre el yaw de
             # odometria, en vez de simplemente anular la correccion (eso
@@ -136,24 +142,26 @@ class WallFollowerNode(Node):
         # pared se capture un rumbo fresco (no uno desactualizado).
         self._heading_objetivo = None
 
-        error_angulo = msg.right_front - msg.right_rear
-
-        if abs(error_angulo) > self._tolerancia_angulo:
+        if abs(msg.right_line_angle_rad) > self._tolerancia_angulo_rad:
             # 1. Prioridad: corregir paralelismo antes que distancia.
-            correccion = -self._k_angulo * error_angulo
+            #
+            # Geometria (derivada y verificada en sim_local/ antes de
+            # portarla aqui): si la pared es una recta horizontal en el
+            # mundo y el robot tiene yaw theta respecto a ella, el
+            # angulo que se ve EN EL MARCO DEL ROBOT es
+            # right_line_angle_rad = atan(pendiente_local) = -theta.
+            # Para corregir theta -> 0 se necesita angular.z = -k*theta
+            # = +k*right_line_angle_rad (SIN signo negativo). Con el
+            # signo cambiado, el lazo es de realimentacion POSITIVA y
+            # el robot diverge en menos de 1 s.
+            correccion = self._k_angulo * msg.right_line_angle_rad
         else:
-            # 2. Ya esta paralelo: corregir distancia solo si esta fuera
-            # del rango aceptable [distancia_min, distancia_max]. Dentro
-            # del rango, avanzar recto sin corregir (evita oscilar).
-            distancia_promedio = (msg.right_front + msg.right_rear) / 2.0
-            if distancia_promedio > self._distancia_max:
-                # Muy lejos: acercarse hasta entrar al rango.
-                error_distancia = self._distancia_max - distancia_promedio
-            elif distancia_promedio < self._distancia_min:
-                # Muy pegado: alejarse hasta entrar al rango.
-                error_distancia = self._distancia_min - distancia_promedio
-            else:
-                error_distancia = 0.0
+            # 2. Ya esta paralelo: corregir distancia hacia el objetivo
+            # (correccion continua, sin banda muerta -- una banda deja
+            # al robot "flotar" sin corregir mientras este adentro, lo
+            # que en la practica se ve como que no mantiene una
+            # distancia consistente).
+            error_distancia = self._distancia_objetivo - msg.right_line_distance_m
             correccion = self._k_distancia * error_distancia
 
         cmd.linear.x = self._v_base

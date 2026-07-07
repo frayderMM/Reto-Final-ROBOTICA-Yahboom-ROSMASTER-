@@ -17,13 +17,13 @@ Documentos de referencia del reto (en esta misma carpeta):
 Reto Final/
 ├── capytown_interfaces/          # Mensajes personalizados (ament_cmake)
 │   └── msg/
-│       ├── LidarZones.msg        # Distancias por zona (frente/S1/derecha/S2/izquierda)
+│       ├── LidarZones.msg        # Distancias por zona + ajuste de linea (right_line_*)
 │       └── RobotEvent.msg        # Eventos discretos para métricas
 │
 ├── capytown_granprix/             # Paquete principal de navegación (ament_python)
 │   ├── capytown_granprix/
 │   │   ├── geometry_utils.py      # yaw, ángulos, clamp
-│   │   ├── lidar_utils.py         # extracción de zonas del /scan
+│   │   ├── lidar_utils.py         # extracción de zonas + ajuste de línea del /scan
 │   │   ├── grid_map.py            # celda/heading por conteo de movimientos
 │   │   ├── event_types.py         # constantes de RobotEvent.tipo
 │   │   ├── lidar_processor_node.py    # (2) Nodo de lectura LiDAR
@@ -34,6 +34,14 @@ Reto Final/
 │   ├── config/granprix_params.yaml    # (7) Umbrales y parámetros
 │   ├── launch/granprix_bringup.launch.py  # (8) Launch file
 │   └── package.xml / setup.py / setup.cfg
+│
+├── sim_local/                     # Simulador local sin ROS2 (ver sección 5.3.1)
+│   ├── environment.py             # pasillo + LiDAR simulado (ray casting)
+│   ├── robot_model.py             # cinemática de uniciclo
+│   ├── wall_follow_control.py     # MISMA lógica que los nodos reales, portable
+│   └── run_sim.py                 # visualización matplotlib en vivo
+│
+├── lidar_viz.py                   # Diagnóstico visual del /scan REAL en el robot
 │
 └── README.md                      # (9) este archivo
 ```
@@ -313,35 +321,91 @@ bajan al acercar un objeto al lado físico correspondiente.
 
 ### 5.3 Avance recto y distancia a pared (`wall_follower`)
 
-El control de distancia usa un **rango aceptable** `[distancia_min_m,
-distancia_max_m]`, no un único valor objetivo: dentro del rango avanza
-recto sin corregir; si se aleja más de `distancia_max_m`, se acerca
-hasta volver a entrar; si queda más pegado que `distancia_min_m`, se
-aleja. Por defecto está en **7-10 cm** (pegado a la pared derecha).
+El control usa **regresión de línea**: `lidar_processor_node` ajusta
+una recta por mínimos cuadrados a *todos* los puntos del LiDAR dentro
+de `right_side_window_deg` (por defecto -135° a -45°, todo el lado
+derecho), no solo 2 puntos sueltos (S1/S2) como una versión anterior —
+mucho más robusto al ruido, porque un solo punto malo pesa poco entre
+decenas. El resultado (`right_line_angle_rad`, `right_line_distance_m`,
+`right_line_valid` en `/lidar_zones`) es lo que usa `wall_follower`:
 
-Cuando no hay pared derecha de referencia (pasillo abierto), en vez de
-ir sin corrección alguna, `wall_follower` mantiene el rumbo con un
-control **Kp de heading** sobre el yaw de `/odom_raw` (parámetro
-`ganancia_heading`): captura el yaw actual como "rumbo objetivo" en el
-instante en que pierde la pared, y corrige proporcionalmente cualquier
-desviación de ese rumbo mientras dure el tramo sin pared. Esto evita
-que un sesgo mecánico del chasis (dirección Ackermann no perfectamente
-centrada) desvíe al robot lentamente sin que nada lo corrija.
+1. **Prioridad 1 — ángulo:** si `|right_line_angle_rad| >
+   tolerancia_angulo_deg`, corrige el paralelismo con
+   `angular.z = ganancia_angulo * right_line_angle_rad` (**sin signo
+   negativo** — ver nota de signo abajo).
+2. **Prioridad 2 — distancia:** si ya está paralelo, corrige de forma
+   **continua** (no hay banda muerta) hacia `distancia_objetivo_m` con
+   `angular.z = ganancia_distancia * (distancia_objetivo_m -
+   right_line_distance_m)`.
+
+Sin pared derecha de referencia (pasillo abierto), mantiene el rumbo
+con un **Kp de heading** sobre el yaw de `/odom_raw` (`ganancia_heading`):
+captura el yaw en el instante que pierde la pared y corrige cualquier
+desviación de ese rumbo mientras dure el tramo sin pared — evita que
+un sesgo mecánico del chasis (dirección Ackermann no perfectamente
+centrada) lo desvíe sin que nada lo corrija.
+
+> **Nota de signo (importante si tocas las ganancias):** con la pared
+> horizontal en el mundo y el robot con yaw θ respecto a ella,
+> `right_line_angle_rad ≈ -θ` (ver derivación en el comentario de
+> `_on_zones` en `wall_follower_node.py`). Para corregir θ→0 hace falta
+> `angular.z = -k·θ = +k·right_line_angle_rad`, **sin** signo negativo.
+> Con el signo invertido el lazo es de realimentación **positiva** y el
+> robot diverge (gira hasta ~90° y se sale del pasillo) en menos de 1
+> segundo — se detectó y corrigió con el simulador local antes de tocar
+> el robot real, ver sección 5.3.1.
+
+**Distancia objetivo — por qué 12 cm y no menos:** el robot mide 16 cm
+de ancho (8 cm de medio-ancho). Si el LiDAR está cerca del centro del
+robot (supuesto por defecto), pedir una distancia objetivo menor a 8 cm
+significa pedirle que la carrocería se meta en la pared. Un barrido de
+parámetros en el simulador local (`sim_local/`) confirmó: con 9 cm o
+menos, el robot choca en algún punto del recorrido sin importar la
+ganancia; a partir de 10 cm deja de chocar pero con muy poco margen
+(~0.5 cm); **12 cm da el mejor resultado** (margen real mínimo ~2.5 cm,
+menor oscilación, robusto a ruido del LiDAR). Por eso
+`distancia_objetivo_m: 0.12` es el valor por defecto, no algo más
+ajustado — **antes de bajarlo, verificar en el robot real dónde está
+montado el LiDAR respecto al borde derecho** (si está más cerca del
+borde que del centro, un valor menor podría ser seguro).
+
+#### 5.3.1 Simulador local (`sim_local/`) — probar sin arriesgar el robot
+
+`sim_local/` es un simulador **Python puro, sin ROS2** (no requiere
+`colcon build`, corre en el PC) que reproduce el mismo algoritmo de
+control antes de tocar el robot real: un pasillo simulado con paredes
+como segmentos, un LiDAR simulado por ray casting, y exactamente la
+misma lógica de ajuste de línea + Kp que `lidar_processor_node` /
+`wall_follower_node` (ver `sim_local/wall_follow_control.py` —
+diseñado para portarse literalmente, no solo "inspirar").
+
+```bash
+cd sim_local
+python run_sim.py
+python run_sim.py --distancia-objetivo 0.10 --ganancia-distancia 1.5
+python run_sim.py --gap      # prueba el fallback sin pared derecha
+python run_sim.py --ruido 0.01
+```
+
+Dibuja el **robot a escala real** (24×16 cm) en el pasillo, con los
+puntos del LiDAR simulado, la recta ajustada, y — lo más importante —
+el **margen real hasta la carrocería** (no solo la distancia del
+sensor), en rojo con `*** CHOQUE ***` si es negativo. Usar esto para
+probar combinaciones de ganancias/distancia objetivo antes de arriesgar
+el robot: cambiar un parámetro, correr, ver si choca o converge bien, y
+solo entonces portar el valor al YAML real.
 
 1. Colocar el robot en un pasillo recto de 60 cm, pared a la derecha.
 2. `ros2 run capytown_granprix wall_follower_node` y observar
    `/wall_follow/cmd_vel_suggestion`.
-3. Ajustar `distancia_min_m`, `distancia_max_m`, `ganancia_angulo`,
-   `ganancia_distancia` y `angular_max_radps` hasta que el robot recorra
-   ~60 cm sin desviarse y sin zigzaguear (si oscila, bajar ganancias; si
-   corrige muy lento, subirlas).
+3. Ajustar `distancia_objetivo_m`, `ganancia_angulo`, `ganancia_distancia`
+   y `angular_max_radps` hasta que el robot recorra ~60 cm sin desviarse
+   y sin zigzaguear (si oscila, bajar ganancias; si corrige muy lento,
+   subirlas) — o probar primero en `sim_local/` antes de gastar tiempo
+   de pista.
 4. **Antes de probar a velocidad real:** con el robot detenido, acércalo
-   a mano hasta la distancia mínima configurada (7 cm) y confirma que a
-   esa distancia la carrocería del robot todavía no toca físicamente la
-   pared (el LiDAR puede no estar exactamente en el borde derecho del
-   robot, sino más al centro — el robot mide 8 cm de medio-ancho, muy
-   cerca de estos 7 cm). Si a 7 cm el cuerpo ya roza la pared, subir
-   `distancia_min_m` antes de dejarlo moverse solo.
+   a mano hasta la distancia objetivo configurada y confirma que la
+   carrocería todavía no toca físicamente la pared.
 
 ### 5.4 Giro de 90° (`state_machine`, estado GIRAR)
 

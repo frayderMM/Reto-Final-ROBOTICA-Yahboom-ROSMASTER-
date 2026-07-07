@@ -30,10 +30,17 @@ lidar_processor:
     # seccion 10). Ajustar solo si el barrido del MS200 en este robot
     # no corresponde a estos valores tras aplicar el offset/inversion.
     front_window_deg: [-15.0, 15.0]
-    right_front_window_deg: [-75.0, -45.0]   # S1
+    right_front_window_deg: [-75.0, -45.0]   # S1 (usado por ALINEAR)
     right_window_deg: [-110.0, -70.0]
-    right_rear_window_deg: [-135.0, -105.0]  # S2
+    right_rear_window_deg: [-135.0, -105.0]  # S2 (usado por ALINEAR)
     left_window_deg: [70.0, 110.0]
+
+    # Ventana amplia para el ajuste de RECTA (regresion) del lado
+    # derecho, usado por wall_follower_node como metodo principal de
+    # seguimiento (mas robusto al ruido que S1/S2 sueltos). Validado
+    # en sim_local/ antes de portarlo aqui.
+    right_side_window_deg: [-135.0, -45.0]
+    min_puntos_linea: 6
 
 wall_follower:
   ros__parameters:
@@ -41,22 +48,23 @@ wall_follower:
     odom_topic: /odom_raw
     output_topic: /wall_follow/cmd_vel_suggestion
 
-    # Rango aceptable de distancia a la pared derecha (promedio S1/S2),
-    # en metros. Dentro del rango avanza recto sin corregir; fuera de
-    # el, se acerca o se aleja hasta volver a entrar. Ajustado a pedido
-    # para que el robot vaya bien pegado a la pared derecha (7-10 cm).
-    # ADVERTENCIA: el robot mide 16 cm de ancho (8 cm de medio-ancho).
-    # Si S1/S2 se miden desde el LiDAR y este no esta exactamente en el
-    # borde derecho del robot, un minimo de 7 cm puede significar que
-    # la pared queda muy cerca o dentro del cuerpo del robot (colision
-    # fisica). Verificar en pista con el robot detenido junto a la
-    # pared antes de confiar en este rango a velocidad real.
-    distancia_min_m: 0.07
-    distancia_max_m: 0.10
-    tolerancia_angulo_m: 0.03
+    # Metodo de REGRESION DE LINEA (ajusta una recta a todos los puntos
+    # del lado derecho, no solo 2 -- ver right_side_window_deg arriba).
+    # Validado en sim_local/ con un barrido de parametros: 7 cm choca
+    # siempre en promedio (el robot mide 8 cm de medio-ancho); 12 cm da
+    # el mejor margen real sin choque (~2.5 cm minimo) con la menor
+    # oscilacion. Correccion CONTINUA hacia el objetivo (sin banda
+    # muerta) para mantener una distancia consistente.
+    distancia_objetivo_m: 0.12
+    tolerancia_angulo_deg: 3.0
 
     velocidad_lineal_mps: 0.15
-    ganancia_angulo: 3.0
+    # ganancia_angulo ahora actua sobre RADIANES (angulo de la recta
+    # ajustada), no metros como el metodo viejo de 2 puntos -- escala
+    # totalmente distinta, no reusar el valor anterior (3.0) sin volver
+    # a calibrar. Signo verificado en sim_local/: con el signo
+    # equivocado el robot diverge en menos de 1 segundo.
+    ganancia_angulo: 2.0
     ganancia_distancia: 2.0
     # Kp de heading (yaw de /odom_raw) usado solo cuando no hay pared
     # derecha de referencia, para mantener el rumbo recto en vez de

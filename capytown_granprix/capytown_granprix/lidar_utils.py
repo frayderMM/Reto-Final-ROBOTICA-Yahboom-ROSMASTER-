@@ -79,6 +79,14 @@ def compute_zone_distance(
     return float(np.min(ranges[mask])), True
 
 
+def compute_robot_frame_angles(
+    ranges, angle_min: float, angle_increment: float, front_offset_rad: float, sign: int
+) -> np.ndarray:
+    """Angulos del scan ya calibrados al marco del robot (0=frente)."""
+    scan_angles = _scan_angles(len(ranges), angle_min, angle_increment)
+    return _robot_frame_angles(scan_angles, front_offset_rad, sign)
+
+
 def compute_all_zones(
     ranges,
     angle_min: float,
@@ -91,8 +99,9 @@ def compute_all_zones(
 ) -> Dict[str, Tuple[float, bool]]:
     """Calcula la distancia minima de cada zona nombrada en ``windows``."""
     ranges_arr = np.asarray(ranges, dtype=float)
-    scan_angles = _scan_angles(len(ranges_arr), angle_min, angle_increment)
-    robot_angles = _robot_frame_angles(scan_angles, front_offset_rad, sign)
+    robot_angles = compute_robot_frame_angles(
+        ranges_arr, angle_min, angle_increment, front_offset_rad, sign
+    )
 
     result = {}
     for name, window in windows.items():
@@ -100,3 +109,51 @@ def compute_all_zones(
             ranges_arr, robot_angles, range_min, range_max, window
         )
     return result
+
+
+def fit_wall_line(
+    ranges: np.ndarray,
+    robot_angles: np.ndarray,
+    range_min: float,
+    range_max: float,
+    window: ZoneWindow,
+    min_points: int = 6,
+) -> Tuple[float, float, bool]:
+    """Ajusta una recta (minimos cuadrados) a los puntos del LiDAR
+    dentro de ``window``, en el marco del robot (x=adelante,
+    y=izquierda). Mucho mas robusto al ruido que usar solo 2 puntos
+    (S1/S2), porque promedia el ajuste sobre todos los puntos validos.
+
+    Retorna (angulo_rad, distancia_m, valido):
+    - ``angulo_rad``: angulo de la pared respecto al frente del robot
+      (0 = perfectamente paralela).
+    - ``distancia_m``: distancia perpendicular del robot (origen del
+      LiDAR) a la recta ajustada.
+    - ``valido``: False si no hay suficientes puntos para un ajuste
+      confiable (equivale a "sin pared derecha de referencia").
+    """
+    lo = math.radians(window.lo_deg)
+    hi = math.radians(window.hi_deg)
+
+    if lo <= hi:
+        in_window = (robot_angles >= lo) & (robot_angles <= hi)
+    else:
+        in_window = (robot_angles >= lo) | (robot_angles <= hi)
+
+    finite = np.isfinite(ranges)
+    in_range = (ranges >= range_min) & (ranges <= range_max)
+    mask = in_window & finite & in_range
+
+    if int(np.sum(mask)) < min_points:
+        return 0.0, 0.0, False
+
+    a = robot_angles[mask]
+    r = ranges[mask]
+    x = r * np.cos(a)
+    y = r * np.sin(a)
+
+    m, b = np.polyfit(x, y, 1)
+    angulo = math.atan(m)
+    distancia = abs(b) / math.sqrt(m * m + 1.0)
+
+    return angulo, distancia, True
