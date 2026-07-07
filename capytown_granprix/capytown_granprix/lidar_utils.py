@@ -118,11 +118,25 @@ def fit_wall_line(
     range_max: float,
     window: ZoneWindow,
     min_points: int = 6,
+    max_outlier_iter: int = 3,
+    outlier_residual_m: float = 0.03,
 ) -> Tuple[float, float, bool]:
     """Ajusta una recta (minimos cuadrados) a los puntos del LiDAR
     dentro de ``window``, en el marco del robot (x=adelante,
     y=izquierda). Mucho mas robusto al ruido que usar solo 2 puntos
     (S1/S2), porque promedia el ajuste sobre todos los puntos validos.
+
+    Rechazo iterativo de outliers: si parte de los puntos de la
+    ventana pertenecen a OTRA superficie (tipico cerca de una esquina,
+    donde una pared perpendicular entra en la ventana), un solo ajuste
+    de minimos cuadrados les da peso y sesga el resultado -- probado
+    con una esquina real en ``sim_local/``, da hasta ~37 grados de
+    error falso. Se ajusta, se descartan los puntos con residuo mayor
+    a ``outlier_residual_m`` (probablemente de otra superficie) y se
+    reajusta, unas pocas veces. La ventana por defecto tambien se
+    angosto (ver ``right_side_window_deg`` en el YAML) por el mismo
+    motivo: una ventana angosta alcanza menos hacia adelante/atras y
+    por eso agarra la esquina mucho mas tarde (mas cerca de ella).
 
     Retorna (angulo_rad, distancia_m, valido):
     - ``angulo_rad``: angulo de la pared respecto al frente del robot
@@ -147,12 +161,17 @@ def fit_wall_line(
     if int(np.sum(mask)) < min_points:
         return 0.0, 0.0, False
 
-    a = robot_angles[mask]
-    r = ranges[mask]
-    x = r * np.cos(a)
-    y = r * np.sin(a)
+    x = ranges[mask] * np.cos(robot_angles[mask])
+    y = ranges[mask] * np.sin(robot_angles[mask])
 
-    m, b = np.polyfit(x, y, 1)
+    for _ in range(max_outlier_iter):
+        m, b = np.polyfit(x, y, 1)
+        residuals = np.abs(y - (m * x + b)) / math.sqrt(m * m + 1.0)
+        inliers = residuals < outlier_residual_m
+        if bool(np.all(inliers)) or int(np.sum(inliers)) < min_points:
+            break
+        x, y = x[inliers], y[inliers]
+
     angulo = math.atan(m)
     distancia = abs(b) / math.sqrt(m * m + 1.0)
 

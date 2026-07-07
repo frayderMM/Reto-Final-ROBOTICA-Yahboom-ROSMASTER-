@@ -29,7 +29,7 @@ from environment import escanear, pasillo_recto_con_quiebre
 from robot_model import Pose, integrar
 from wall_follow_control import ParametrosControl, ajustar_linea_pared, calcular_comando
 
-VENTANA_DERECHA_DEG = (-135.0, -45.0)
+VENTANA_DERECHA_DEG = (-110.0, -70.0)
 DT = 0.05  # s (20 Hz, igual que control_rate_hz del robot real)
 NUM_PUNTOS_SCAN = 452  # ~0.8 grados de resolucion, como el MS200
 RANGE_MAX = 4.0
@@ -161,7 +161,7 @@ def _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, v, w, tx, ty, args):
 
     _dibujar_robot(ax, pose, args.largo_robot, args.ancho_robot)
 
-    lo, hi = math.radians(-135.0), math.radians(-45.0)
+    lo, hi = math.radians(VENTANA_DERECHA_DEG[0]), math.radians(VENTANA_DERECHA_DEG[1])
     en_ventana = (angulos >= lo) & (angulos <= hi) & np.isfinite(rangos)
     if np.any(en_ventana):
         a = angulos[en_ventana]

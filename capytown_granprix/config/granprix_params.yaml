@@ -35,12 +35,21 @@ lidar_processor:
     right_rear_window_deg: [-135.0, -105.0]  # S2 (usado por ALINEAR)
     left_window_deg: [70.0, 110.0]
 
-    # Ventana amplia para el ajuste de RECTA (regresion) del lado
-    # derecho, usado por wall_follower_node como metodo principal de
-    # seguimiento (mas robusto al ruido que S1/S2 sueltos). Validado
-    # en sim_local/ antes de portarlo aqui.
-    right_side_window_deg: [-135.0, -45.0]
+    # Ventana para el ajuste de RECTA (regresion) del lado derecho,
+    # usado por wall_follower_node como metodo principal de seguimiento
+    # (mas robusto al ruido que S1/S2 sueltos). Se angosto de -135/-45
+    # a -110/-70: una ventana mas ancha alcanza mas lejos hacia
+    # adelante/atras y cerca de una esquina (pared perpendicular) puede
+    # agarrar puntos de esa otra pared, sesgando el angulo hasta ~37
+    # grados falsos -- confirmado con una esquina real en sim_local/.
+    right_side_window_deg: [-110.0, -70.0]
     min_puntos_linea: 6
+    # Rechazo iterativo de outliers en el ajuste de recta (puntos que
+    # no encajan bien, probablemente de otra superficie como una
+    # esquina): se descartan y se reajusta, hasta esta cantidad de
+    # veces. Segunda capa de defensa ademas de la ventana angosta.
+    outlier_max_iter: 3
+    outlier_residuo_m: 0.03
 
 wall_follower:
   ros__parameters:

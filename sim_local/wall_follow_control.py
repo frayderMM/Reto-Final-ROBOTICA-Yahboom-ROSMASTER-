@@ -27,9 +27,23 @@ def ajustar_linea_pared(
     range_min: float,
     range_max: float,
     min_puntos: int = 6,
+    max_iter_outliers: int = 3,
+    umbral_residuo_m: float = 0.03,
 ) -> Optional[AjusteLinea]:
     """Ajusta una recta y = m*x + b a los puntos del LiDAR dentro de la
     ventana angular dada (marco del robot: x=adelante, y=izquierda).
+
+    Rechazo iterativo de outliers: si algunos puntos de la ventana
+    pertenecen a OTRA superficie (ej. una pared perpendicular en una
+    esquina, no la pared que se sigue), un solo ajuste de minimos
+    cuadrados les da peso y sesga el angulo/distancia -- se probo con
+    una esquina real en sim_local/ y da hasta 37 grados de error falso.
+    Aqui se ajusta, se descartan los puntos con residuo grande (que
+    probablemente no son la pared seguida) y se reajusta, unas pocas
+    veces. La ventana angular por defecto (ver ``right_side_window_deg``
+    en el YAML) tambien se angosto para el mismo problema: una ventana
+    mas angosta alcanza menos hacia adelante/atras y por eso agarra la
+    esquina mucho mas tarde (mas cerca de ella) que una ventana ancha.
 
     Retorna None si no hay suficientes puntos validos para un ajuste
     confiable (equivale a "sin pared derecha de referencia").
@@ -43,8 +57,7 @@ def ajustar_linea_pared(
         en_ventana = (angulos_robot >= lo) | (angulos_robot <= hi)
 
     validos = en_ventana & np.isfinite(rangos) & (rangos >= range_min) & (rangos <= range_max)
-    n = int(np.sum(validos))
-    if n < min_puntos:
+    if int(np.sum(validos)) < min_puntos:
         return None
 
     a = angulos_robot[validos]
@@ -52,11 +65,18 @@ def ajustar_linea_pared(
     x = r * np.cos(a)
     y = r * np.sin(a)
 
-    m, b = np.polyfit(x, y, 1)
+    for _ in range(max_iter_outliers):
+        m, b = np.polyfit(x, y, 1)
+        residuos = np.abs(y - (m * x + b)) / math.sqrt(m * m + 1.0)
+        inliers = residuos < umbral_residuo_m
+        if bool(np.all(inliers)) or int(np.sum(inliers)) < min_puntos:
+            break
+        x, y = x[inliers], y[inliers]
+
     angulo = math.atan(m)
     distancia = abs(b) / math.sqrt(m * m + 1.0)
 
-    return AjusteLinea(angulo_rad=angulo, distancia_m=distancia, n_puntos=n)
+    return AjusteLinea(angulo_rad=angulo, distancia_m=distancia, n_puntos=len(x))
 
 
 @dataclass
