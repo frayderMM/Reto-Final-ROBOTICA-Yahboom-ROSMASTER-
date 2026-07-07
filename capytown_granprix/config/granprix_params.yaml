@@ -11,16 +11,22 @@ lidar_processor:
     output_topic: /lidar_zones
 
     # --- Calibracion de montaje del LiDAR ---
-    # Verificado en pista con lidar_viz.py: el angulo 0 del scan
-    # corresponde al ATRAS del robot, no al frente, por eso el offset
-    # es 180. La prueba estatica de dos distancias (40 cm derecha real /
-    # 13 cm izquierda real) dio invert=false, pero en la prueba
-    # dinamica real (robot avanzando con wall_follower) seguia la pared
-    # izquierda -- se dejo invert=true por observacion directa en
-    # movimiento, que es la que manda. Si vuelve a fallar, repetir la
-    # prueba de dos distancias pero con el robot en movimiento, no
-    # detenido, para descartar diferencias entre ambos escenarios.
-    front_offset_deg: 180.0
+    # HISTORIAL (para no repetir el mismo ciclo de prueba y error):
+    # offset=0/invert=false -> frente mostraba lo que era atras.
+    # offset=180/invert=false -> estatico parecia bien, pero en
+    #   movimiento seguia la pared izquierda.
+    # offset=180/invert=true -> en una prueba real posterior, frente Y
+    #   derecha quedaron AMBOS invertidos (frente=atras, derecha=izq)
+    #   al mismo tiempo -- eso es literalmente una rotacion de 180
+    #   completa de mas. Matematicamente, agregar +180 al offset actual
+    #   (manteniendo el mismo invert) equivale a restar 180, es decir
+    #   volver a offset=0 con invert=true (no probado antes en esa
+    #   combinacion exacta).
+    # ACTUAL A VERIFICAR: offset=0, invert=true. Confirmar con
+    # lidar_viz.py poniendo un objeto en LOS 4 LADOS reales (no solo
+    # frente) antes de dar esto por bueno -- cada vez que se cambio
+    # esto sin verificar los 4 lados se volvio a romper otra cosa.
+    front_offset_deg: 0.0
     invert_left_right: true
 
     max_range_use_m: 4.0
