@@ -69,6 +69,15 @@ wall_follower:
     # estado siga siendo AVANZAR_PARALELO (seguridad redundante).
     frente_minimo_seguro_m: 0.15
 
+    # --- Modo de prueba: SOLO para calibrar el seguimiento recto ---
+    # Si es true, ademas de la sugerencia normal, publica el mismo
+    # comando directo en cmd_vel_topic. Permite correr unicamente
+    # lidar_processor_node + wall_follower_node (sin state_machine) en
+    # un pasillo largo, para ver el seguimiento continuo puro sin las
+    # fases de celda/cruce/giro. NO activar junto con state_machine_node.
+    cmd_vel_topic: /cmd_vel
+    publicar_directo_en_cmd_vel: false
+
 state_machine:
   ros__parameters:
     lidar_zones_topic: /lidar_zones

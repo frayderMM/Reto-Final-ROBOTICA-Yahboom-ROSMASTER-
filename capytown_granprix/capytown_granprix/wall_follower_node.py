@@ -21,6 +21,14 @@ Cuando no hay pared derecha de referencia (pasillo abierto), se usa un
 control Kp de heading (con el yaw de ``/odom_raw``) para mantener el
 rumbo recto en vez de simplemente anular la correccion -- evita que un
 sesgo mecanico del chasis lo desvie lentamente sin que nada lo corrija.
+
+Modo de prueba (``publicar_directo_en_cmd_vel``): para calibrar SOLO el
+seguimiento recto, sin que ``state_machine_node`` interrumpa con fases
+de celda/cruce/giro, este nodo puede publicar la misma velocidad
+directo en ``/cmd_vel`` ademas de la sugerencia normal. Util para
+correr unicamente ``lidar_processor_node`` + ``wall_follower_node`` en
+un pasillo largo. NO usar este modo junto con ``state_machine_node``
+corriendo (dos nodos escribirian en ``/cmd_vel`` a la vez).
 """
 
 import rclpy
@@ -50,6 +58,8 @@ class WallFollowerNode(Node):
         self.declare_parameter('ganancia_heading', 2.0)
         self.declare_parameter('angular_max_radps', 0.6)
         self.declare_parameter('frente_minimo_seguro_m', 0.15)
+        self.declare_parameter('cmd_vel_topic', '/cmd_vel')
+        self.declare_parameter('publicar_directo_en_cmd_vel', False)
 
         self._zones_topic = self.get_parameter('lidar_zones_topic').value
         self._odom_topic = self.get_parameter('odom_topic').value
@@ -63,11 +73,21 @@ class WallFollowerNode(Node):
         self._k_heading = float(self.get_parameter('ganancia_heading').value)
         self._angular_max = float(self.get_parameter('angular_max_radps').value)
         self._frente_minimo = float(self.get_parameter('frente_minimo_seguro_m').value)
+        self._publicar_directo = bool(self.get_parameter('publicar_directo_en_cmd_vel').value)
 
         self._yaw = 0.0
         self._heading_objetivo = None
 
         self._pub = self.create_publisher(Twist, self._output_topic, 10)
+        self._cmd_vel_pub = None
+        if self._publicar_directo:
+            cmd_vel_topic = self.get_parameter('cmd_vel_topic').value
+            self._cmd_vel_pub = self.create_publisher(Twist, cmd_vel_topic, 10)
+            self.get_logger().warn(
+                f'MODO DE PRUEBA activo: publicando directo en {cmd_vel_topic}. '
+                'No correr junto con state_machine_node.'
+            )
+
         self._sub = self.create_subscription(
             LidarZones, self._zones_topic, self._on_zones, QoSPresetProfiles.SENSOR_DATA.value
         )
@@ -77,6 +97,11 @@ class WallFollowerNode(Node):
             f'wall_follower listo: rango={self._distancia_min:.2f}-{self._distancia_max:.2f} m, '
             f'v_base={self._v_base:.2f} m/s'
         )
+
+    def _publish(self, cmd: Twist) -> None:
+        self._pub.publish(cmd)
+        if self._cmd_vel_pub is not None:
+            self._cmd_vel_pub.publish(cmd)
 
     def _on_odom(self, msg: Odometry) -> None:
         self._yaw = yaw_from_quaternion(msg.pose.pose.orientation)
@@ -88,7 +113,7 @@ class WallFollowerNode(Node):
             # Seguridad redundante: si hay pared muy cerca al frente,
             # no avanzar aunque el estado siga siendo AVANZAR_PARALELO
             # (el nodo de decision debera reaccionar en su propio ciclo).
-            self._pub.publish(cmd)
+            self._publish(cmd)
             return
 
         if not (msg.right_front_valid and msg.right_rear_valid):
@@ -103,7 +128,7 @@ class WallFollowerNode(Node):
             correccion = self._k_heading * error_heading
             cmd.linear.x = self._v_base
             cmd.angular.z = clamp(correccion, -self._angular_max, self._angular_max)
-            self._pub.publish(cmd)
+            self._publish(cmd)
             return
 
         # Hay pared derecha valida: al recuperarla, olvidar el heading
@@ -133,7 +158,7 @@ class WallFollowerNode(Node):
 
         cmd.linear.x = self._v_base
         cmd.angular.z = clamp(correccion, -self._angular_max, self._angular_max)
-        self._pub.publish(cmd)
+        self._publish(cmd)
 
 
 def main(args=None):
