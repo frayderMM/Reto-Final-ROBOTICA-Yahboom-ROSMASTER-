@@ -129,6 +129,12 @@ class StateMachineNode(Node):
             'robot_state_topic': '/robot_state',
             'usar_camara': True,
             'control_rate_hz': 20.0,
+            # Modo de prueba: si es true, se saltan DETECTAR_CRUCE,
+            # BUSCAR_PARE, ALINEAR y VERIFICAR_META -- solo queda
+            # AVANZAR_PARALELO <-> GIRAR, usando una lectura unica
+            # (sin confirmar con varias muestras) para decidir. Util
+            # para calibrar el giro de 90 grados de forma aislada.
+            'modo_simplificado': False,
             'umbral_frente_pared_m': 0.25,
             'umbral_frente_libre_m': 0.35,
             'umbral_lado_libre_m': 0.40,
@@ -176,6 +182,7 @@ class StateMachineNode(Node):
 
         self._usar_camara = bool(g('usar_camara'))
         self._control_rate_hz = float(g('control_rate_hz'))
+        self._modo_simplificado = bool(g('modo_simplificado'))
 
         self._umbral_frente_pared = float(g('umbral_frente_pared_m'))
         self._umbral_frente_libre = float(g('umbral_frente_libre_m'))
@@ -319,6 +326,15 @@ class StateMachineNode(Node):
                 )
                 self._terminado = True
                 self._set_state('DETENIDO')
+                return
+
+            if self._modo_simplificado:
+                # Decidir con una sola lectura, sin confirmar con varias
+                # muestras ni pasar por BUSCAR_PARE.
+                self._derecha_libre = bool(z.right_valid and z.right > self._umbral_lado_libre)
+                self._frente_libre = bool(z.front_valid and z.front > self._umbral_frente_libre)
+                self._izquierda_libre = bool(z.left_valid and z.left > self._umbral_lado_libre)
+                self._set_state('DECIDIR')
             else:
                 self._set_state('DETECTAR_CRUCE')
             return
@@ -406,8 +422,12 @@ class StateMachineNode(Node):
         self._decision_actual = direction
 
         if direction == 'NINGUNO':
-            self._alinear_start = None
-            self._set_state('ALINEAR')
+            if self._modo_simplificado:
+                self._begin_avanzar_paralelo()
+                self._set_state('AVANZAR_PARALELO')
+            else:
+                self._alinear_start = None
+                self._set_state('ALINEAR')
             return
 
         self._giro_objetivo = self._compute_turn_target(self._yaw, direction)
@@ -432,8 +452,12 @@ class StateMachineNode(Node):
         if abs(error) <= self._tolerancia_giro_rad:
             self._publish_twist(Twist())
             self._grid.apply_turn(self._decision_actual)
-            self._alinear_start = None
-            self._set_state('ALINEAR')
+            if self._modo_simplificado:
+                self._begin_avanzar_paralelo()
+                self._set_state('AVANZAR_PARALELO')
+            else:
+                self._alinear_start = None
+                self._set_state('ALINEAR')
             return
 
         # Chasis Ackermann: no puede rotar en el sitio. Se aproxima el

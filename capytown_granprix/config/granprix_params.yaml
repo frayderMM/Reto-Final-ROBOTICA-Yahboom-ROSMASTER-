@@ -125,6 +125,13 @@ state_machine:
     usar_camara: true
     control_rate_hz: 20.0
 
+    # Modo de prueba: salta DETECTAR_CRUCE, BUSCAR_PARE, ALINEAR y
+    # VERIFICAR_META -- queda solo AVANZAR_PARALELO <-> GIRAR, con una
+    # sola lectura (sin confirmar con varias muestras) para decidir.
+    # Util para calibrar el giro de 90 grados aislado del resto de la
+    # logica de intersecciones. Poner en false para la corrida real.
+    modo_simplificado: true
+
     # --- Correccion de escala del odometro (calibrado en pista) ---
     # El ROSMASTER R2 sobreestima distancia y angulo de forma consistente.
     # Medido: avance real 76 cm -> odometro 78.3 cm (factor ~0.9706,
