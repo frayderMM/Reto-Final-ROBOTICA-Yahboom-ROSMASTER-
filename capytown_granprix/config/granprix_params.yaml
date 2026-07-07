@@ -141,7 +141,15 @@ state_machine:
     factor_ang_odom: 0.9899
 
     # --- Umbrales de deteccion (logica_pared_derecha_robot.md, seccion 11) ---
-    umbral_frente_pared_m: 0.25    # pared al frente: detener avance
+    # umbral_frente_pared_m subido de 0.25 a 0.30: en sim_local (esquina
+    # de fondo ciego que gira a la izquierda, ver
+    # sim_local/environment.py::pasillo_frente_bloqueado_gira_izquierda,
+    # pista de 3 celdas) con 0.25 el margen real hasta la pared durante
+    # el giro era de solo 0.8 cm -- barrido de parametros encontro que
+    # subiendo este umbral y velocidad_giro_angular_radps (ver abajo) el
+    # margen sube a ~4.7 cm sin tocar distancia_objetivo_m (ya validado
+    # para el seguimiento recto).
+    umbral_frente_pared_m: 0.30    # pared al frente: detener avance
     umbral_frente_libre_m: 0.35    # frente libre para avanzar/decidir
     umbral_lado_libre_m: 0.40      # camino lateral libre (derecha/izquierda)
 
@@ -160,8 +168,11 @@ state_machine:
     consenso_minimo: 4
 
     # --- Giro (chasis Ackermann: arco lento con cierre por yaw de odometria) ---
-    velocidad_giro_lineal_mps: 0.08
-    velocidad_giro_angular_radps: 0.5
+    # velocidad_giro_lineal_mps bajado de 0.08 a 0.06 y velocidad_giro_angular_radps
+    # subido de 0.5 a 0.6: radio de giro mas chico (v/w), mas margen a la
+    # pared en un giro cerrado -- ver nota de umbral_frente_pared_m arriba.
+    velocidad_giro_lineal_mps: 0.06
+    velocidad_giro_angular_radps: 0.6
     tolerancia_giro_deg: 4.0
 
     # --- Alineacion tras el giro ---
