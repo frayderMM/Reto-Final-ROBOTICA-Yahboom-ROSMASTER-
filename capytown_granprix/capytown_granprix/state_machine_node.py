@@ -405,21 +405,26 @@ class StateMachineNode(Node):
 
     def _handle_avanzar_paralelo_dos_reglas(self):
         """TRES REGLAS (ver logica_dos_reglas arriba), con AJUSTE DE
-        LINEA para el lado derecho (no distancia puntual) y
+        LINEA para el lado IZQUIERDO (no distancia puntual) y
         confirmacion de varios ciclos para el frente:
 
         1. Avanzar recto mientras el frente este libre.
-        2. Si hay ajuste de linea valido (right_line_*) de la pared
-           derecha, corregir con Kp (angulo + distancia hacia
-           distancia_objetivo_m) -- distingue una pared vista en
-           diagonal (se corrige el angulo) de un obstaculo nuevo (no
-           encaja como continuacion de esa recta). Si NO hay ajuste
-           valido (se perdio la pared), avanzar recto sin corregir
-           nada -- simple a proposito, sin heading-hold ni respaldo.
+        2. Si hay ajuste de linea valido (left_line_*) de la pared
+           IZQUIERDA, corregir con Kp hacia distancia_objetivo_m --
+           distingue una pared vista en diagonal (se corrige el
+           angulo) de un obstaculo nuevo (no encaja como continuacion
+           de esa recta). El termino de ANGULO usa el mismo signo que
+           para la pared derecha (relacion angulo=-theta_mundo,
+           geometrica, no depende del lado); el termino de DISTANCIA
+           va INVERTIDO (distancia_actual - objetivo, no objetivo -
+           distancia_actual): si esta muy lejos de la pared izquierda
+           hay que girar HACIA ella (izquierda), al reves que con la
+           derecha. Si NO hay ajuste valido, avanzar recto sin
+           corregir nada -- simple a proposito, sin respaldo.
         3. Si hay obstaculo al frente (front_narrow, cono angosto)
-           sostenido durante frente_confirmaciones_ciclos seguidos (no
-           un solo vistazo), girar 90 grados a la IZQUIERDA (fijo,
-           ignora derecha/izquierda) y retomar.
+           sostenido durante frente_confirmaciones_ciclos seguidos,
+           girar 90 grados a la DERECHA (fijo, se aleja de la pared
+           izquierda que sigue) y retomar.
 
         No cuenta celdas ni pasa por ALINEAR -- portado tal cual de
         sim_local/run_sim_laberinto.py::_correr_logica_simple.
@@ -432,10 +437,10 @@ class StateMachineNode(Node):
 
         if self._contador_frente_dos_reglas >= self._frente_confirmaciones_ciclos:
             self._contador_frente_dos_reglas = 0
-            self._decision_actual = 'IZQUIERDA'
-            self._giro_objetivo = self._compute_turn_target(self._yaw, 'IZQUIERDA')
+            self._decision_actual = 'DERECHA'
+            self._giro_objetivo = self._compute_turn_target(self._yaw, 'DERECHA')
             self._publish_event(
-                EV.GIRO, f'obstaculo al frente ({z.front_narrow:.2f}m) -> IZQUIERDA'
+                EV.GIRO, f'obstaculo al frente ({z.front_narrow:.2f}m) -> DERECHA'
             )
             self._publish_twist(Twist())
             self._pausa_giro_start = self.get_clock().now()
@@ -443,13 +448,13 @@ class StateMachineNode(Node):
             return
 
         cmd = Twist()
-        if not z.right_line_valid:
+        if not z.left_line_valid:
             # Sin pared de referencia: avanzar recto, sin corregir nada.
             cmd.linear.x = self._velocidad_recta
             self._publish_twist(cmd)
             return
-        error_distancia = self._distancia_objetivo_recta - z.right_line_distance_m
-        correccion = (self._ganancia_angulo_recta * z.right_line_angle_rad
+        error_distancia = z.left_line_distance_m - self._distancia_objetivo_recta  # invertido (pared izq)
+        correccion = (self._ganancia_angulo_recta * z.left_line_angle_rad
                       + self._ganancia_distancia_recta * error_distancia)
         cmd.linear.x = self._velocidad_recta
         cmd.angular.z = max(-self._angular_max_recta, min(self._angular_max_recta, correccion))
