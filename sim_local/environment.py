@@ -364,7 +364,9 @@ def pasillo_obstaculo_perpendicular(
     p.agregar(x_inicio, y_der_0, x_obs, y_der_0)
     p.agregar(x_obs, y_der_0, x_fin, y_der_0)
 
-    # Obstaculo perpendicular, sale de la pared derecha hacia adentro.
-    p.agregar(x_obs, y_der_0, x_obs, y_der_0 - largo_obstaculo_m)
+    # Obstaculo perpendicular: sale de la pared derecha HACIA ADENTRO
+    # del pasillo (+y, hacia donde viaja el robot), no hacia afuera --
+    # si no, el robot nunca lo encuentra en su camino real.
+    p.agregar(x_obs, y_der_0, x_obs, y_der_0 + largo_obstaculo_m)
 
     return p
