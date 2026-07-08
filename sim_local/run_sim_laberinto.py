@@ -74,14 +74,19 @@ def parse_args():
     p.add_argument('--umbral-frente-pared', type=float, default=0.30)
     p.add_argument('--umbral-frente-libre', type=float, default=0.35)
     p.add_argument('--umbral-lado-libre', type=float, default=0.40)
-    p.add_argument('--celda', type=float, default=0.30,
-                    help='tamano de celda del laberinto (m). El trazado real de '
-                         'DETALLE_PISTA.md es de 0.60; se escala completo a este valor '
-                         '-- ver docstring de pasillo_laberinto_completo(). El robot NO '
-                         'se escala (sigue siendo 24x16cm), asi que celdas chicas pueden '
-                         'dejar muy poco margen real.')
+    p.add_argument('--celda-real', type=float, default=0.60,
+                    help='tamano de celda FISICO del laberinto (m), usado para trazar las '
+                         'paredes (DETALLE_PISTA.md) y ubicar inicio/meta. NO tocar salvo '
+                         'para simular una pista real distinta -- el robot (24x16cm, '
+                         'PROPIEDADES_ROBOT.md) esta a escala de este valor, no del de '
+                         '--celda-decision.')
+    p.add_argument('--celda-decision', type=float, default=0.30,
+                    help='cada cuanto (m) el robot revisa derecha/frente/izquierda mientras '
+                         'avanza -- una grilla mas fina que --celda-real (12x8 celdas de '
+                         '30cm en vez de 6x4 de 60cm) SOLO para el chequeo de intersecciones '
+                         'y el dibujo de grilla; no cambia el ancho real de los pasillos.')
     p.add_argument('--margen-avance', type=float, default=None,
-                    help='por defecto, proporcional a --celda (misma fraccion que 0.05/0.60)')
+                    help='por defecto, proporcional a --celda-decision (misma fraccion que 0.05/0.60)')
     p.add_argument('--ventana-decision', type=float, nargs=2, default=[-100.0, -80.0])
     p.add_argument('--largo-robot', type=float, default=0.24)
     p.add_argument('--ancho-robot', type=float, default=0.16)
@@ -105,12 +110,13 @@ def zona_min(angulos, rangos, ventana_deg, range_min=RANGE_MIN, range_max=RANGE_
 def main():
     args = parse_args()
     if args.margen_avance is None:
-        args.margen_avance = args.celda * (0.05 / 0.60)
+        args.margen_avance = args.celda_decision * (0.05 / 0.60)
 
-    # Centro de A4 (inicio) y F1 (meta), escalados al tamano de celda actual.
-    inicio_x, inicio_y = 0.5 * args.celda, 3.5 * args.celda
-    meta_x, meta_y = 5.5 * args.celda, 0.5 * args.celda
-    umbral_meta = 0.25 * args.celda
+    # Centro de A4 (inicio) y F1 (meta), en la grilla FISICA real (6x4
+    # celdas de --celda-real) -- independiente de --celda-decision.
+    inicio_x, inicio_y = 0.5 * args.celda_real, 3.5 * args.celda_real
+    meta_x, meta_y = 5.5 * args.celda_real, 0.5 * args.celda_real
+    umbral_meta = 0.25 * args.celda_real
 
     params_wf = ParametrosControl(
         distancia_objetivo_m=args.distancia_objetivo,
@@ -132,7 +138,7 @@ def main():
         tiempo_max_s=args.tiempo_max_alinear,
     )
 
-    pasillo = pasillo_laberinto_completo(celda_m=args.celda)
+    pasillo = pasillo_laberinto_completo(celda_m=args.celda_real)
 
     pose = Pose(x=inicio_x, y=inicio_y, theta=INICIO_THETA)
     heading_objetivo = None
@@ -175,7 +181,7 @@ def main():
                 front_d, front_v = zona_min(angulos, rangos, VENT_FRONT)
                 frente_cerca = front_v and front_d < args.umbral_frente_pared
 
-                if avance >= (args.celda - args.margen_avance) or frente_cerca:
+                if avance >= (args.celda_decision - args.margen_avance) or frente_cerca:
                     num_celdas += 1
                     right_d, right_v = zona_min(angulos, rangos, tuple(args.ventana_decision))
                     left_d, left_v = zona_min(angulos, rangos, VENT_LEFT)
@@ -281,15 +287,30 @@ def _dibujar_robot(ax, pose, largo, ancho):
     ax.plot([pose.x, frente[0]], [pose.y, frente[1]], color='gold', linewidth=2, zorder=6)
 
 
-def _dibujar_grid(ax, celda_m):
+def _dibujar_grid(ax, celda_decision_m, celda_real_m):
+    """Dibuja DOS grillas superpuestas: la fisica real (6x4 celdas de
+    ``celda_real_m``, con las etiquetas A1..F4 -- la pista de verdad,
+    DETALLE_PISTA.md) y una mas fina de ``celda_decision_m`` (lineas
+    tenues) que marca cada cuanto el robot revisa intersecciones. Las
+    paredes no dependen de esta grilla fina, solo el chequeo."""
+    ancho_total = 6 * celda_real_m
+    alto_total = 4 * celda_real_m
+
+    n_cols_fino = max(1, round(ancho_total / celda_decision_m))
+    n_rows_fino = max(1, round(alto_total / celda_decision_m))
+    for col in range(n_cols_fino + 1):
+        ax.axvline(col * celda_decision_m, color='whitesmoke', linewidth=0.5, zorder=0)
+    for row in range(n_rows_fino + 1):
+        ax.axhline(row * celda_decision_m, color='whitesmoke', linewidth=0.5, zorder=0)
+
     for col in range(7):
-        ax.axvline(col * celda_m, color='lightgray', linewidth=0.5, zorder=0)
+        ax.axvline(col * celda_real_m, color='lightgray', linewidth=0.8, zorder=0)
     for row in range(5):
-        ax.axhline(row * celda_m, color='lightgray', linewidth=0.5, zorder=0)
+        ax.axhline(row * celda_real_m, color='lightgray', linewidth=0.8, zorder=0)
     letras = 'ABCDEF'
     for c in range(6):
         for r in range(4):
-            ax.text((c + 0.5) * celda_m, (r + 0.5) * celda_m, f'{letras[c]}{r+1}',
+            ax.text((c + 0.5) * celda_real_m, (r + 0.5) * celda_real_m, f'{letras[c]}{r+1}',
                      ha='center', va='center', fontsize=8, color='lightgray', zorder=0)
 
 
@@ -313,7 +334,7 @@ def _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado, decision_info,
              inicio_x, inicio_y, meta_x, meta_y):
     ax.clear()
 
-    _dibujar_grid(ax, args.celda)
+    _dibujar_grid(ax, args.celda_decision, args.celda_real)
 
     for seg in pasillo.segmentos:
         ax.plot([seg.a[0], seg.b[0]], [seg.a[1], seg.b[1]], color='saddlebrown', linewidth=3)
@@ -345,9 +366,9 @@ def _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado, decision_info,
             bbox=dict(boxstyle='round,pad=0.4', facecolor='white', edgecolor=color_estado, alpha=0.9),
             zorder=10)
 
-    margen = args.celda * 0.5
-    ax.set_xlim(-margen, 6 * args.celda + margen)
-    ax.set_ylim(4 * args.celda + margen, -margen)  # invertido: Y crece hacia abajo
+    margen = args.celda_real * 0.5
+    ax.set_xlim(-margen, 6 * args.celda_real + margen)
+    ax.set_ylim(4 * args.celda_real + margen, -margen)  # invertido: Y crece hacia abajo
     ax.set_aspect('equal')
 
 
