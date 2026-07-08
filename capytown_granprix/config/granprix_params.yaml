@@ -141,8 +141,10 @@ state_machine:
     # de pared con wall_follow_cmd): avanzar recto mientras el frente
     # este libre, corregir con el AJUSTE DE LINEA (angulo + distancia,
     # no distancia puntual -- evita confundir una pared vista en
-    # diagonal con un obstaculo real) hacia distancia_objetivo_m, girar
-    # 90 grados fijo a la IZQUIERDA si hay obstaculo al frente sostenido
+    # diagonal con un obstaculo real) hacia distancia_objetivo_m; si NO
+    # hay ajuste valido, avanzar recto sin corregir nada (sin heading-
+    # hold ni respaldo, simple a proposito); girar 90 grados fijo a la
+    # IZQUIERDA si hay obstaculo al frente sostenido
     # frente_confirmaciones_ciclos seguidos (sin mirar derecha/
     # izquierda, sin contar celdas, sin ALINEAR). Ver
     # sim_local/run_sim_laberinto.py::_correr_logica_simple (el mismo
@@ -154,7 +156,6 @@ state_machine:
     ganancia_angulo_recta: 2.0
     ganancia_distancia_recta: 2.0
     angular_max_recta_radps: 0.6
-    umbral_muy_cerca_recta_m: 0.06
     frente_confirmaciones_ciclos: 3
 
     # --- Correccion de escala del odometro (calibrado en pista) ---

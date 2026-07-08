@@ -308,11 +308,10 @@ def _correr_logica_simple(args):
 
     1. Avanzar recto mientras el frente este libre.
     2. Si hay ajuste de linea valido de la pared derecha, corregir con
-       Kp (angulo + distancia hacia --distancia-objetivo, formula de
-       wall_follow_control.calcular_comando) para mantenerse paralelo
-       y cerca -- sigue corrigiendo aunque la pared este mas lejos que
-       --umbral-pared-cerca, ya que el ajuste de linea es mas preciso
-       que una distancia puntual.
+       Kp (angulo + distancia hacia --distancia-objetivo) para
+       mantenerse paralelo y cerca. Si NO hay ajuste valido (se perdio
+       la pared), avanzar recto sin corregir nada -- sin heading-hold
+       ni ningun otro respaldo, simple a proposito.
     3. Si detecta un obstaculo al frente (cono angosto, ver
        VENT_FRONT_ESTRECHO) sostenido durante --frente-confirmaciones
        ciclos seguidos (no un solo vistazo), girar a la IZQUIERDA
@@ -327,14 +326,6 @@ def _correr_logica_simple(args):
     umbral_meta = 0.25 * args.celda_real
     theta_inicio = 0.0  # mirando al este, paralelo a la pared inferior
 
-    params_wf = ParametrosControl(
-        distancia_objetivo_m=args.distancia_objetivo,
-        velocidad_lineal_mps=args.velocidad,
-        ganancia_angulo=args.ganancia_angulo,
-        ganancia_distancia=args.ganancia_distancia,
-        ganancia_heading=args.ganancia_heading,
-        angular_max_radps=args.angular_max,
-    )
     params_giro = ParametrosGiro(
         velocidad_lineal_mps=args.v_giro_lineal,
         velocidad_angular_radps=args.v_giro_angular,
@@ -344,8 +335,6 @@ def _correr_logica_simple(args):
     pasillo = pasillo_laberinto_completo(celda_m=args.celda_real)
 
     pose = Pose(x=inicio_x, y=inicio_y, theta=theta_inicio)
-    heading_objetivo = None
-    ultima_distancia_valida = None
     estado = 'AVANZAR'
     giro_objetivo = None
     ultima_decision_info = ''
@@ -388,10 +377,15 @@ def _correr_logica_simple(args):
                 else:
                     ajuste = ajustar_linea_pared(angulos, rangos, *VENT_LINEA,
                                                   range_min=RANGE_MIN, range_max=RANGE_MAX, min_puntos=6)
-                    v, w, heading_objetivo, ultima_distancia_valida = calcular_comando(
-                        ajuste, pose.theta, heading_objetivo, ultima_distancia_valida, params_wf
-                    )
-                    pose = integrar(pose, v, w, DT)
+                    if ajuste is None:
+                        # Sin pared de referencia: avanzar recto, sin corregir nada.
+                        w = 0.0
+                    else:
+                        error_distancia = args.distancia_objetivo - ajuste.distancia_m
+                        correccion = (args.ganancia_angulo * ajuste.angulo_rad
+                                      + args.ganancia_distancia * error_distancia)
+                        w = max(-args.angular_max, min(args.angular_max, correccion))
+                    pose = integrar(pose, args.velocidad, w, DT)
 
             elif estado == 'GIRAR_IZQUIERDA':
                 v, w, terminado = calcular_comando_giro(pose.theta, giro_objetivo, params_giro)

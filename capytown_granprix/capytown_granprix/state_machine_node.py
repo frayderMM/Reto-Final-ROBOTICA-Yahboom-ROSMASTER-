@@ -90,8 +90,6 @@ class StateMachineNode(Node):
         self._esperando_obstaculo = False
         self._espera_obstaculo_inicio = None
         self._contador_frente_dos_reglas = 0
-        self._heading_objetivo_recta = None
-        self._ultima_distancia_valida_recta = None
 
         self._STATE_HANDLERS = {
             'INICIAR': self._handle_iniciar,
@@ -170,7 +168,6 @@ class StateMachineNode(Node):
             'ganancia_angulo_recta': 2.0,
             'ganancia_distancia_recta': 2.0,
             'angular_max_recta_radps': 0.6,
-            'umbral_muy_cerca_recta_m': 0.06,
             # Confirmacion de N ciclos seguidos con front_narrow
             # bloqueado antes de girar -- un solo vistazo diagonal de un
             # ciclo (100% ruido/transitorio) no alcanza para disparar un
@@ -240,7 +237,6 @@ class StateMachineNode(Node):
         self._ganancia_angulo_recta = float(g('ganancia_angulo_recta'))
         self._ganancia_distancia_recta = float(g('ganancia_distancia_recta'))
         self._angular_max_recta = float(g('angular_max_recta_radps'))
-        self._umbral_muy_cerca_recta = float(g('umbral_muy_cerca_recta_m'))
         self._frente_confirmaciones_ciclos = int(g('frente_confirmaciones_ciclos'))
         self._contador_frente_dos_reglas = 0
 
@@ -415,10 +411,11 @@ class StateMachineNode(Node):
         1. Avanzar recto mientras el frente este libre.
         2. Si hay ajuste de linea valido (right_line_*) de la pared
            derecha, corregir con Kp (angulo + distancia hacia
-           distancia_objetivo_m, formula de wall_follow_control.
-           calcular_comando) -- distingue una pared vista en diagonal
-           (se corrige el angulo) de un obstaculo nuevo (no encaja
-           como continuacion de esa recta).
+           distancia_objetivo_m) -- distingue una pared vista en
+           diagonal (se corrige el angulo) de un obstaculo nuevo (no
+           encaja como continuacion de esa recta). Si NO hay ajuste
+           valido (se perdio la pared), avanzar recto sin corregir
+           nada -- simple a proposito, sin heading-hold ni respaldo.
         3. Si hay obstaculo al frente (front_narrow, cono angosto)
            sostenido durante frente_confirmaciones_ciclos seguidos (no
            un solo vistazo), girar 90 grados a la IZQUIERDA (fijo,
@@ -447,34 +444,10 @@ class StateMachineNode(Node):
 
         cmd = Twist()
         if not z.right_line_valid:
-            muy_cerca = (self._ultima_distancia_valida_recta is not None
-                         and self._ultima_distancia_valida_recta < self._umbral_muy_cerca_recta)
-            if muy_cerca:
-                # Probablemente se acerco demasiado y perdio la pared por
-                # estar bajo el rango minimo del LiDAR -- girar activamente
-                # lejos en vez de mantener rumbo (si no, se aleja sin
-                # control, bug real ya encontrado con wall_follower_node).
-                self._heading_objetivo_recta = None
-                cmd.linear.x = self._velocidad_recta
-                cmd.angular.z = self._angular_max_recta
-                self._publish_twist(cmd)
-                return
-
-            # Sin pared de referencia (y no "muy cerca"): mantener el
-            # rumbo que tenia (o capturarlo fresco ahora) en vez de
-            # girar sin control.
-            if self._heading_objetivo_recta is None:
-                self._heading_objetivo_recta = self._yaw
-            error_heading = angle_diff(self._heading_objetivo_recta, self._yaw)
+            # Sin pared de referencia: avanzar recto, sin corregir nada.
             cmd.linear.x = self._velocidad_recta
-            cmd.angular.z = max(-self._angular_max_recta,
-                                 min(self._angular_max_recta,
-                                     self._ganancia_angulo_recta * error_heading))
             self._publish_twist(cmd)
             return
-
-        self._heading_objetivo_recta = None
-        self._ultima_distancia_valida_recta = z.right_line_distance_m
         error_distancia = self._distancia_objetivo_recta - z.right_line_distance_m
         correccion = (self._ganancia_angulo_recta * z.right_line_angle_rad
                       + self._ganancia_distancia_recta * error_distancia)
