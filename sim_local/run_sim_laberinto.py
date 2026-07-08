@@ -33,7 +33,10 @@ from matplotlib.patches import Polygon
 from environment import escanear, pasillo_laberinto_completo
 from robot_model import Pose, integrar
 from wall_follow_control import ParametrosControl, ajustar_linea_pared, calcular_comando
-from turn_control import ParametrosGiro, calcular_comando_giro, calcular_objetivo_giro
+from turn_control import (
+    ParametrosGiro, calcular_comando_giro, calcular_objetivo_giro,
+    ParametrosAlineacion, calcular_comando_alinear,
+)
 
 DT = 0.05
 NUM_PUNTOS_SCAN = 452
@@ -43,6 +46,8 @@ RANGE_MIN = 0.03
 VENT_LINEA = (-110.0, -70.0)
 VENT_FRONT = (-15.0, 15.0)
 VENT_LEFT = (70.0, 110.0)
+VENT_RIGHT_FRONT = (-75.0, -45.0)   # S1, usado por ALINEAR
+VENT_RIGHT_REAR = (-135.0, -105.0)  # S2, usado por ALINEAR
 
 # Centro de A4 (entrada) en cm -> m, mirando hacia el "norte" (Y
 # decreciente, hacia A3/A2/A1) para iniciar el recorrido.
@@ -59,10 +64,18 @@ def parse_args():
     p.add_argument('--ganancia-heading', type=float, default=2.0)
     p.add_argument('--angular-max', type=float, default=0.6)
     p.add_argument('--velocidad', type=float, default=0.15)
-    p.add_argument('--v-giro-lineal', type=float, default=0.08)
-    p.add_argument('--v-giro-angular', type=float, default=0.5)
+    p.add_argument('--v-giro-lineal', type=float, default=0.06)
+    p.add_argument('--v-giro-angular', type=float, default=0.6)
     p.add_argument('--tolerancia-giro-deg', type=float, default=4.0)
-    p.add_argument('--umbral-frente-pared', type=float, default=0.25)
+    p.add_argument('--angulo-giro', type=float, default=95.0,
+                    help='angulo objetivo de giro en grados (angulo_giro_deg en el yaml real)')
+    p.add_argument('--pausa-antes-girar', type=float, default=1.0,
+                    help='segundos detenido entre DECIDIR y el arco de GIRAR')
+    p.add_argument('--tolerancia-alineacion', type=float, default=0.02)
+    p.add_argument('--tiempo-max-alinear', type=float, default=4.0)
+    p.add_argument('--v-alinear-lineal', type=float, default=0.06)
+    p.add_argument('--v-alinear-angular', type=float, default=0.3)
+    p.add_argument('--umbral-frente-pared', type=float, default=0.30)
     p.add_argument('--umbral-frente-libre', type=float, default=0.35)
     p.add_argument('--umbral-lado-libre', type=float, default=0.40)
     p.add_argument('--celda', type=float, default=0.60)
@@ -103,6 +116,12 @@ def main():
         velocidad_angular_radps=args.v_giro_angular,
         tolerancia_giro_deg=args.tolerancia_giro_deg,
     )
+    params_alinear = ParametrosAlineacion(
+        tolerancia_m=args.tolerancia_alineacion,
+        velocidad_lineal_mps=args.v_alinear_lineal,
+        velocidad_angular_radps=args.v_alinear_angular,
+        tiempo_max_s=args.tiempo_max_alinear,
+    )
 
     pasillo = pasillo_laberinto_completo()
 
@@ -116,6 +135,8 @@ def main():
     ultima_decision_info = ''
     num_celdas = 0
     num_giros = 0
+    pausa_giro_inicio = 0
+    alinear_inicio = 0
 
     trayectoria_x, trayectoria_y = [pose.x], [pose.y]
     rng = np.random.default_rng(0)
@@ -174,11 +195,38 @@ def main():
                         cell_start = (pose.x, pose.y)
                     else:
                         num_giros += 1
-                        giro_objetivo = calcular_objetivo_giro(pose.theta, decision_actual)
-                        estado = 'GIRAR'
+                        giro_objetivo = calcular_objetivo_giro(
+                            pose.theta, decision_actual, angulo_deg=args.angulo_giro
+                        )
+                        pausa_giro_inicio = paso
+                        estado = 'PAUSA_GIRO'
+
+            elif estado == 'PAUSA_GIRO':
+                # Robot detenido tiempo_pausa_antes_girar_s antes de
+                # arrancar el arco de GIRAR (ver PAUSA_GIRO en
+                # state_machine_node.py).
+                ajuste = None
+                if (paso - pausa_giro_inicio) * DT >= args.pausa_antes_girar:
+                    estado = 'GIRAR'
 
             elif estado == 'GIRAR':
                 v, w, terminado = calcular_comando_giro(pose.theta, giro_objetivo, params_giro)
+                pose = integrar(pose, v, w, DT)
+                ajuste = None
+                if terminado:
+                    alinear_inicio = paso
+                    estado = 'ALINEAR'
+
+            elif estado == 'ALINEAR':
+                # Corrige el heading contra la pared REAL (S1/S2) en vez
+                # de confiar solo en el angulo objetivo fijo + odometria
+                # de GIRAR (ver _handle_alinear en state_machine_node.py).
+                rf_d, rf_v = zona_min(angulos, rangos, VENT_RIGHT_FRONT)
+                rr_d, rr_v = zona_min(angulos, rangos, VENT_RIGHT_REAR)
+                elapsed = (paso - alinear_inicio) * DT
+                v, w, terminado = calcular_comando_alinear(
+                    rf_v, rf_d, rr_v, rr_d, elapsed, params_alinear
+                )
                 pose = integrar(pose, v, w, DT)
                 ajuste = None
                 if terminado:
@@ -260,7 +308,10 @@ def _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado, decision_info,
     ax.plot(0.30, 2.10, marker='*', markersize=14, color='tab:green', zorder=7)
     ax.plot(3.30, 0.30, marker='*', markersize=14, color='tab:orange', zorder=7)
 
-    color_estado = {'AVANZAR_PARALELO': 'black', 'GIRAR': 'purple'}.get(estado, 'black')
+    color_estado = {
+        'AVANZAR_PARALELO': 'black', 'PAUSA_GIRO': 'firebrick',
+        'GIRAR': 'purple', 'ALINEAR': 'teal',
+    }.get(estado, 'black')
     info = f'estado={estado}  celdas={num_celdas}  giros={num_giros}\n{decision_info}'
     ax.set_title(info, fontsize=9, color=color_estado)
 
