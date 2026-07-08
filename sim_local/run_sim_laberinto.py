@@ -101,7 +101,7 @@ def parse_args():
                          'izquierda si hay obstaculo al frente (sin PAUSA_GIRO/ALINEAR ni '
                          'decision de grilla derecha/frente/izquierda/atras). '
                          'actual: la maquina de estados completa (DECIDIR/PAUSA_GIRO/GIRAR/ALINEAR).')
-    p.add_argument('--umbral-pared-cerca', type=float, default=0.20,
+    p.add_argument('--umbral-pared-cerca', type=float, default=0.30,
                     help='solo --logica simple: por debajo de esto, corrige para pegarse a la '
                          'pared derecha; por encima, sigue recto sin corregir')
     return p.parse_args()
@@ -294,11 +294,14 @@ def _correr_logica_actual(args):
 
 
 def _correr_logica_simple(args):
-    """SOLO DOS reglas, nada mas (sin grilla de decision, sin seguir
-    pared, sin PAUSA_GIRO/ALINEAR):
+    """TRES reglas, sin grilla de decision ni PAUSA_GIRO/ALINEAR:
 
     1. Avanzar recto mientras el frente este libre.
-    2. Si detecta un obstaculo al frente, girar a la IZQUIERDA
+    2. Si hay pared derecha a menos de --umbral-pared-cerca (30cm),
+       usar correccion lateral (Kp hacia --distancia-objetivo) para
+       mantenerse cerca -- igual formula que el seguimiento de pared
+       original, pero solo activa por debajo de este umbral.
+    3. Si detecta un obstaculo al frente, girar a la IZQUIERDA
        (--angulo-giro) y retomar.
 
     Arranca paralelo a la pared inferior (fila 4, mirando al ESTE/
@@ -355,7 +358,15 @@ def _correr_logica_simple(args):
                     estado = 'GIRAR_IZQUIERDA'
                     ajuste = None
                 else:
-                    pose = integrar(pose, args.velocidad, 0.0, DT)
+                    right_d, right_v = zona_min(angulos, rangos, tuple(args.ventana_decision))
+                    pared_cerca = right_v and right_d < args.umbral_pared_cerca
+                    if pared_cerca:
+                        error = args.distancia_objetivo - right_d
+                        w = args.ganancia_distancia * error
+                        w = max(-args.angular_max, min(args.angular_max, w))
+                    else:
+                        w = 0.0
+                    pose = integrar(pose, args.velocidad, w, DT)
                     ajuste = None
 
             elif estado == 'GIRAR_IZQUIERDA':
