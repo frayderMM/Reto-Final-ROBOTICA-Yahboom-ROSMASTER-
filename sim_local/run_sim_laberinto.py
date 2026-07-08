@@ -63,8 +63,11 @@ def parse_args():
     p.add_argument('--v-giro-lineal', type=float, default=0.06)
     p.add_argument('--v-giro-angular', type=float, default=0.6)
     p.add_argument('--tolerancia-giro-deg', type=float, default=4.0)
-    p.add_argument('--angulo-giro', type=float, default=95.0,
-                    help='angulo objetivo de giro en grados (angulo_giro_deg en el yaml real)')
+    p.add_argument('--angulo-giro', type=float, default=90.0,
+                    help='angulo objetivo de giro en grados. GIRAR_IZQUIERDA no revisa NINGUN '
+                         'sensor mientras gira -- cierra el lazo solo contra el yaw de '
+                         'odometria hasta llegar a este angulo (+/- --tolerancia-giro-deg), '
+                         'pase lo que pase alrededor. No hay forma de interrumpirlo antes.')
     p.add_argument('--pausa-antes-girar', type=float, default=1.0,
                     help='segundos detenido entre DECIDIR y el arco de GIRAR')
     p.add_argument('--tolerancia-alineacion', type=float, default=0.02)
