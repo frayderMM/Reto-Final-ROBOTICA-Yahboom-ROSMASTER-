@@ -38,6 +38,10 @@ lidar_processor:
     # seccion 10). Ajustar solo si el barrido del MS200 en este robot
     # no corresponde a estos valores tras aplicar el offset/inversion.
     front_window_deg: [-15.0, 15.0]
+    # Cono angosto solo para logica_dos_reglas (state_machine_node):
+    # con -15/15 una pared lateral vista en diagonal puede entrar en el
+    # cono y confundirse con un obstaculo real al frente.
+    front_narrow_window_deg: [-8.0, 8.0]
     right_front_window_deg: [-75.0, -45.0]   # S1 (usado por ALINEAR)
     right_window_deg: [-110.0, -70.0]
     right_rear_window_deg: [-135.0, -105.0]  # S2 (usado por ALINEAR)
@@ -135,19 +139,23 @@ state_machine:
 
     # Logica simplificada de AVANZAR_PARALELO (reemplaza el seguimiento
     # de pared con wall_follow_cmd): avanzar recto mientras el frente
-    # este libre, corregir hacia la pared derecha solo si esta a menos
-    # de umbral_pared_cerca_m, girar 90 grados fijo a la IZQUIERDA si
-    # hay obstaculo al frente (sin mirar derecha/izquierda, sin contar
-    # celdas, sin ALINEAR). Ver
+    # este libre, corregir con el AJUSTE DE LINEA (angulo + distancia,
+    # no distancia puntual -- evita confundir una pared vista en
+    # diagonal con un obstaculo real) hacia distancia_objetivo_m, girar
+    # 90 grados fijo a la IZQUIERDA si hay obstaculo al frente sostenido
+    # frente_confirmaciones_ciclos seguidos (sin mirar derecha/
+    # izquierda, sin contar celdas, sin ALINEAR). Ver
     # sim_local/run_sim_laberinto.py::_correr_logica_simple (el mismo
     # comportamiento validado ahi). PONER EN FALSE antes de volver a
     # la logica real de seguimiento de pared / antes de competencia.
     logica_dos_reglas: true
     velocidad_recta_mps: 0.15
-    umbral_pared_cerca_m: 0.30
     distancia_objetivo_m: 0.12
+    ganancia_angulo_recta: 2.0
     ganancia_distancia_recta: 2.0
     angular_max_recta_radps: 0.6
+    umbral_muy_cerca_recta_m: 0.06
+    frente_confirmaciones_ciclos: 3
 
     # --- Correccion de escala del odometro (calibrado en pista) ---
     # El ROSMASTER R2 sobreestima distancia y angulo de forma consistente.

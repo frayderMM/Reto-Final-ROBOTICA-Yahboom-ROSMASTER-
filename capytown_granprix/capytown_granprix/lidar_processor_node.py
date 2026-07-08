@@ -44,6 +44,10 @@ class LidarProcessorNode(Node):
         self.declare_parameter('invert_left_right', False)
         self.declare_parameter('max_range_use_m', 4.0)
         self.declare_parameter('front_window_deg', [-15.0, 15.0])
+        # Cono angosto, solo para logica_dos_reglas (state_machine_node):
+        # el cono ancho de front_window_deg puede agarrar una pared lateral
+        # vista en diagonal y confundirla con un obstaculo real al frente.
+        self.declare_parameter('front_narrow_window_deg', [-8.0, 8.0])
         self.declare_parameter('right_front_window_deg', [-75.0, -45.0])
         self.declare_parameter('right_window_deg', [-110.0, -70.0])
         self.declare_parameter('right_rear_window_deg', [-135.0, -105.0])
@@ -65,6 +69,7 @@ class LidarProcessorNode(Node):
             'right': ZoneWindow(*self.get_parameter('right_window_deg').value),
             'right_rear': ZoneWindow(*self.get_parameter('right_rear_window_deg').value),
             'left': ZoneWindow(*self.get_parameter('left_window_deg').value),
+            'front_narrow': ZoneWindow(*self.get_parameter('front_narrow_window_deg').value),
         }
         self._right_side_window = ZoneWindow(*self.get_parameter('right_side_window_deg').value)
         self._min_puntos_linea = int(self.get_parameter('min_puntos_linea').value)
@@ -94,7 +99,7 @@ class LidarProcessorNode(Node):
         out = LidarZones()
         out.header = msg.header
 
-        for name in ('front', 'right_front', 'right', 'right_rear', 'left'):
+        for name in ('front', 'right_front', 'right', 'right_rear', 'left', 'front_narrow'):
             distancia, valido = compute_zone_distance(
                 ranges, robot_angles, msg.range_min, range_max_use, self._windows[name]
             )

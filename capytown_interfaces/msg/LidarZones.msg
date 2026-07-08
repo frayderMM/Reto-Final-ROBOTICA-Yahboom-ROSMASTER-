@@ -11,12 +11,16 @@ float32 right_front    # S1: sensor derecho delantero (paralelismo, metodo de 2 
 float32 right          # Zona lateral derecha (distancia a la pared derecha)
 float32 right_rear     # S2: sensor derecho trasero (paralelismo, metodo de 2 puntos)
 float32 left            # Zona lateral izquierda
+float32 front_narrow    # Zona frontal ANGOSTA (cono chico, ver front_narrow_window_deg):
+                         # para logica_dos_reglas, evita confundir una pared lateral
+                         # vista en diagonal con un obstaculo real al frente.
 
 bool front_valid
 bool right_front_valid
 bool right_valid
 bool right_rear_valid
 bool left_valid
+bool front_narrow_valid
 
 # Ajuste de recta a TODOS los puntos del LiDAR en el lado derecho
 # (regresion por minimos cuadrados, mas robusto al ruido que S1/S2).

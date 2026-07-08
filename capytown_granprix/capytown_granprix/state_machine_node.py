@@ -89,6 +89,9 @@ class StateMachineNode(Node):
 
         self._esperando_obstaculo = False
         self._espera_obstaculo_inicio = None
+        self._contador_frente_dos_reglas = 0
+        self._heading_objetivo_recta = None
+        self._ultima_distancia_valida_recta = None
 
         self._STATE_HANDLERS = {
             'INICIAR': self._handle_iniciar,
@@ -155,15 +158,24 @@ class StateMachineNode(Node):
             # corrida real de competencia.
             'logica_dos_reglas': True,
             'velocidad_recta_mps': 0.15,
-            # Tercera regla (opcional) de logica_dos_reglas: si la pared
-            # derecha esta a menos de umbral_pared_cerca_m, corregir con
-            # Kp hacia distancia_objetivo_m (misma formula que
-            # wall_follower, pero re-declarada aqui porque en este modo
-            # NO se usa wall_follow_cmd en absoluto).
-            'umbral_pared_cerca_m': 0.30,
+            # Correccion lateral de logica_dos_reglas: usa el AJUSTE DE
+            # LINEA (right_line_*, angulo + distancia) en vez de la
+            # distancia puntual right_valid/right -- evita confundir una
+            # pared vista en diagonal con un obstaculo nuevo, porque el
+            # ajuste de linea da el angulo real de la pared en vez de un
+            # numero suelto. Misma formula que wall_follow_control.
+            # calcular_comando, re-declarada aqui porque este modo NO
+            # usa wall_follow_cmd en absoluto.
             'distancia_objetivo_m': 0.12,
+            'ganancia_angulo_recta': 2.0,
             'ganancia_distancia_recta': 2.0,
             'angular_max_recta_radps': 0.6,
+            'umbral_muy_cerca_recta_m': 0.06,
+            # Confirmacion de N ciclos seguidos con front_narrow
+            # bloqueado antes de girar -- un solo vistazo diagonal de un
+            # ciclo (100% ruido/transitorio) no alcanza para disparar un
+            # giro, tiene que sostenerse.
+            'frente_confirmaciones_ciclos': 3,
             'umbral_frente_pared_m': 0.25,
             'umbral_frente_libre_m': 0.35,
             'umbral_lado_libre_m': 0.40,
@@ -224,10 +236,13 @@ class StateMachineNode(Node):
         self._modo_simplificado = bool(g('modo_simplificado'))
         self._logica_dos_reglas = bool(g('logica_dos_reglas'))
         self._velocidad_recta = float(g('velocidad_recta_mps'))
-        self._umbral_pared_cerca = float(g('umbral_pared_cerca_m'))
         self._distancia_objetivo_recta = float(g('distancia_objetivo_m'))
+        self._ganancia_angulo_recta = float(g('ganancia_angulo_recta'))
         self._ganancia_distancia_recta = float(g('ganancia_distancia_recta'))
         self._angular_max_recta = float(g('angular_max_recta_radps'))
+        self._umbral_muy_cerca_recta = float(g('umbral_muy_cerca_recta_m'))
+        self._frente_confirmaciones_ciclos = int(g('frente_confirmaciones_ciclos'))
+        self._contador_frente_dos_reglas = 0
 
         self._umbral_frente_pared = float(g('umbral_frente_pared_m'))
         self._umbral_frente_libre = float(g('umbral_frente_libre_m'))
@@ -393,37 +408,78 @@ class StateMachineNode(Node):
         self._publish_twist(self._wall_follow_cmd)
 
     def _handle_avanzar_paralelo_dos_reglas(self):
-        """TRES REGLAS (ver logica_dos_reglas arriba):
+        """TRES REGLAS (ver logica_dos_reglas arriba), con AJUSTE DE
+        LINEA para el lado derecho (no distancia puntual) y
+        confirmacion de varios ciclos para el frente:
 
         1. Avanzar recto mientras el frente este libre.
-        2. Si la pared derecha esta a menos de umbral_pared_cerca_m,
-           corregir con Kp hacia distancia_objetivo_m para mantenerse
-           cerca (misma formula que wall_follower_node, re-declarada
-           aqui porque este modo no usa wall_follow_cmd).
-        3. Si hay obstaculo al frente, girar 90 grados a la IZQUIERDA
-           (fijo, ignora derecha/izquierda) y retomar.
+        2. Si hay ajuste de linea valido (right_line_*) de la pared
+           derecha, corregir con Kp (angulo + distancia hacia
+           distancia_objetivo_m, formula de wall_follow_control.
+           calcular_comando) -- distingue una pared vista en diagonal
+           (se corrige el angulo) de un obstaculo nuevo (no encaja
+           como continuacion de esa recta).
+        3. Si hay obstaculo al frente (front_narrow, cono angosto)
+           sostenido durante frente_confirmaciones_ciclos seguidos (no
+           un solo vistazo), girar 90 grados a la IZQUIERDA (fijo,
+           ignora derecha/izquierda) y retomar.
 
         No cuenta celdas ni pasa por ALINEAR -- portado tal cual de
         sim_local/run_sim_laberinto.py::_correr_logica_simple.
         """
         z = self._zones
-        frente_bloqueado = z.front_valid and z.front < self._umbral_frente_pared
+        frente_cerca_1_ciclo = z.front_narrow_valid and z.front_narrow < self._umbral_frente_pared
+        self._contador_frente_dos_reglas = (
+            self._contador_frente_dos_reglas + 1 if frente_cerca_1_ciclo else 0
+        )
 
-        if frente_bloqueado:
+        if self._contador_frente_dos_reglas >= self._frente_confirmaciones_ciclos:
+            self._contador_frente_dos_reglas = 0
             self._decision_actual = 'IZQUIERDA'
             self._giro_objetivo = self._compute_turn_target(self._yaw, 'IZQUIERDA')
-            self._publish_event(EV.GIRO, f'obstaculo al frente ({z.front:.2f}m) -> IZQUIERDA')
+            self._publish_event(
+                EV.GIRO, f'obstaculo al frente ({z.front_narrow:.2f}m) -> IZQUIERDA'
+            )
             self._publish_twist(Twist())
             self._pausa_giro_start = self.get_clock().now()
             self._set_state('PAUSA_GIRO')
             return
 
         cmd = Twist()
+        if not z.right_line_valid:
+            muy_cerca = (self._ultima_distancia_valida_recta is not None
+                         and self._ultima_distancia_valida_recta < self._umbral_muy_cerca_recta)
+            if muy_cerca:
+                # Probablemente se acerco demasiado y perdio la pared por
+                # estar bajo el rango minimo del LiDAR -- girar activamente
+                # lejos en vez de mantener rumbo (si no, se aleja sin
+                # control, bug real ya encontrado con wall_follower_node).
+                self._heading_objetivo_recta = None
+                cmd.linear.x = self._velocidad_recta
+                cmd.angular.z = self._angular_max_recta
+                self._publish_twist(cmd)
+                return
+
+            # Sin pared de referencia (y no "muy cerca"): mantener el
+            # rumbo que tenia (o capturarlo fresco ahora) en vez de
+            # girar sin control.
+            if self._heading_objetivo_recta is None:
+                self._heading_objetivo_recta = self._yaw
+            error_heading = angle_diff(self._heading_objetivo_recta, self._yaw)
+            cmd.linear.x = self._velocidad_recta
+            cmd.angular.z = max(-self._angular_max_recta,
+                                 min(self._angular_max_recta,
+                                     self._ganancia_angulo_recta * error_heading))
+            self._publish_twist(cmd)
+            return
+
+        self._heading_objetivo_recta = None
+        self._ultima_distancia_valida_recta = z.right_line_distance_m
+        error_distancia = self._distancia_objetivo_recta - z.right_line_distance_m
+        correccion = (self._ganancia_angulo_recta * z.right_line_angle_rad
+                      + self._ganancia_distancia_recta * error_distancia)
         cmd.linear.x = self._velocidad_recta
-        if z.right_valid and z.right < self._umbral_pared_cerca:
-            error = self._distancia_objetivo_recta - z.right
-            angular = self._ganancia_distancia_recta * error
-            cmd.angular.z = max(-self._angular_max_recta, min(self._angular_max_recta, angular))
+        cmd.angular.z = max(-self._angular_max_recta, min(self._angular_max_recta, correccion))
         self._publish_twist(cmd)
 
     def _handle_detectar_cruce(self):
