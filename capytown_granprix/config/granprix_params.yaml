@@ -210,14 +210,15 @@ state_machine:
     consenso_minimo: 4
 
     # --- Giro (chasis Ackermann: arco lento con cierre por yaw de odometria) ---
-    # velocidad_giro_lineal_mps subido de 0.06 a 0.10: en el robot real,
-    # arrancando DETENIDO (PAUSA_GIRO), 0.06 m/s no parecia tener fuerza
-    # suficiente para vencer la friccion estatica -- "apenas gira una
-    # rueda", el chasis no llegaba a moverse en el arco. 0.06 se habia
-    # bajado antes por margen de espacio en un giro puntual (esquina de
-    # fondo ciego), no por torque -- si hace falta ese margen de nuevo,
-    # revisar junto con umbral_frente_pared_m en vez de bajar esto.
-    velocidad_giro_lineal_mps: 0.10
+    # velocidad_giro_lineal_mps: 0.06 y 0.10 no tenian fuerza suficiente
+    # para arrancar desde PARADO (PAUSA_GIRO deja el chasis detenido) --
+    # "apenas gira una rueda", no llegaba a vencer la friccion estatica.
+    # Subido a 0.15, igual a velocidad_recta_mps (que si arranca bien).
+    # 0.06 se habia bajado antes por margen de espacio en un giro
+    # puntual (esquina de fondo ciego), no por torque -- si hace falta
+    # ese margen de nuevo, revisar junto con umbral_frente_pared_m en
+    # vez de bajar esto.
+    velocidad_giro_lineal_mps: 0.15
     velocidad_giro_angular_radps: 0.6
     tolerancia_giro_deg: 4.0
     # Angulo objetivo de giro (DERECHA/IZQUIERDA). ATRAS sigue siendo
