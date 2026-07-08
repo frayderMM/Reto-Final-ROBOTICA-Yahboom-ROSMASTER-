@@ -291,19 +291,21 @@ def _correr_logica_actual(args):
 
 
 def _correr_logica_simple(args):
-    """Cuatro reglas, sin grilla de decision ni PAUSA_GIRO/ALINEAR:
+    """SOLO DOS reglas, nada mas (sin grilla de decision, sin seguir
+    pared, sin PAUSA_GIRO/ALINEAR):
 
-    1. Avanzar recto.
-    2. Si hay pared derecha cerca (< --umbral-pared-cerca), corregir
-       para mantenerse pegado a ella (Kp hacia --distancia-objetivo).
-    3. Si la pared derecha esta mas lejos que eso, seguir recto sin
-       corregir (no la busca activamente).
-    4. Si hay obstaculo al frente (< --umbral-frente-pared), girar a
-       la IZQUIERDA (--angulo-giro) y retomar.
+    1. Avanzar recto mientras el frente este libre.
+    2. Si detecta un obstaculo al frente, girar a la IZQUIERDA
+       (--angulo-giro) y retomar.
+
+    Arranca paralelo a la pared inferior (fila 4, mirando al ESTE/
+    derecha) en vez de mirando al norte -- coincide con la entrada
+    real de A4 (lateral izquierdo, DETALLE_PISTA.md seccion 6).
     """
     inicio_x, inicio_y = 0.5 * args.celda_real, 3.5 * args.celda_real
     meta_x, meta_y = 5.5 * args.celda_real, 0.5 * args.celda_real
     umbral_meta = 0.25 * args.celda_real
+    theta_inicio = 0.0  # mirando al este, paralelo a la pared inferior
 
     params_giro = ParametrosGiro(
         velocidad_lineal_mps=args.v_giro_lineal,
@@ -313,7 +315,7 @@ def _correr_logica_simple(args):
 
     pasillo = pasillo_laberinto_completo(celda_m=args.celda_real)
 
-    pose = Pose(x=inicio_x, y=inicio_y, theta=INICIO_THETA)
+    pose = Pose(x=inicio_x, y=inicio_y, theta=theta_inicio)
     estado = 'AVANZAR'
     giro_objetivo = None
     ultima_decision_info = ''
@@ -336,7 +338,6 @@ def _correr_logica_simple(args):
             )
 
             if estado == 'AVANZAR':
-                right_d, right_v = zona_min(angulos, rangos, tuple(args.ventana_decision))
                 front_d, front_v = zona_min(angulos, rangos, VENT_FRONT)
                 frente_bloqueado = front_v and front_d < args.umbral_frente_pared
 
@@ -351,14 +352,7 @@ def _correr_logica_simple(args):
                     estado = 'GIRAR_IZQUIERDA'
                     ajuste = None
                 else:
-                    pared_cerca = right_v and right_d < args.umbral_pared_cerca
-                    if pared_cerca:
-                        error = args.distancia_objetivo - right_d
-                        w = args.ganancia_distancia * error
-                    else:
-                        w = 0.0
-                    w = max(-args.angular_max, min(args.angular_max, w))
-                    pose = integrar(pose, args.velocidad, w, DT)
+                    pose = integrar(pose, args.velocidad, 0.0, DT)
                     ajuste = None
 
             elif estado == 'GIRAR_IZQUIERDA':
