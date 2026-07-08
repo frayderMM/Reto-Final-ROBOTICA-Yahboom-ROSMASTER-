@@ -62,7 +62,7 @@ def parse_args():
     p.add_argument('--ganancia-heading', type=float, default=2.0)
     p.add_argument('--angular-max', type=float, default=0.6)
     p.add_argument('--velocidad', type=float, default=0.225)  # +50% sobre 0.15
-    p.add_argument('--v-giro-lineal', type=float, default=0.06)
+    p.add_argument('--v-giro-lineal', type=float, default=0.10)
     p.add_argument('--v-giro-angular', type=float, default=0.6)
     p.add_argument('--tolerancia-giro-deg', type=float, default=4.0)
     p.add_argument('--angulo-giro', type=float, default=90.0,
