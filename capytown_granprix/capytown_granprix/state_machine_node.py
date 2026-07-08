@@ -144,6 +144,17 @@ class StateMachineNode(Node):
             # objetivo fijo + odometria. Util para calibrar el giro de
             # forma aislada, con el feedback de alineacion incluido.
             'modo_simplificado': False,
+            # SOLO DOS REGLAS (rama logica-alternativa, para probar en
+            # hardware lo mismo que sim_local/run_sim_laberinto.py::
+            # _correr_logica_simple): avanzar recto mientras el frente
+            # este libre; si hay obstaculo al frente, girar 90 grados a
+            # la IZQUIERDA fijo (sin mirar derecha/izquierda, sin
+            # seguir pared, sin celda, sin ALINEAR). Cuando esta en
+            # true, IGNORA modo_simplificado y el resto de la maquina
+            # de estados de cruce/PARE -- dejar en false para la
+            # corrida real de competencia.
+            'logica_dos_reglas': True,
+            'velocidad_recta_mps': 0.15,
             'umbral_frente_pared_m': 0.25,
             'umbral_frente_libre_m': 0.35,
             'umbral_lado_libre_m': 0.40,
@@ -202,6 +213,8 @@ class StateMachineNode(Node):
         self._usar_camara = bool(g('usar_camara'))
         self._control_rate_hz = float(g('control_rate_hz'))
         self._modo_simplificado = bool(g('modo_simplificado'))
+        self._logica_dos_reglas = bool(g('logica_dos_reglas'))
+        self._velocidad_recta = float(g('velocidad_recta_mps'))
 
         self._umbral_frente_pared = float(g('umbral_frente_pared_m'))
         self._umbral_frente_libre = float(g('umbral_frente_libre_m'))
@@ -326,6 +339,10 @@ class StateMachineNode(Node):
         self._cell_start_xy = (self._odom_x, self._odom_y)
 
     def _handle_avanzar_paralelo(self):
+        if self._logica_dos_reglas:
+            self._handle_avanzar_paralelo_dos_reglas()
+            return
+
         dx = self._odom_x - self._cell_start_xy[0]
         dy = self._odom_y - self._cell_start_xy[1]
         avance = math.hypot(dx, dy)
@@ -361,6 +378,33 @@ class StateMachineNode(Node):
             return
 
         self._publish_twist(self._wall_follow_cmd)
+
+    def _handle_avanzar_paralelo_dos_reglas(self):
+        """SOLO DOS REGLAS (ver logica_dos_reglas arriba):
+
+        1. Avanzar recto mientras el frente este libre.
+        2. Si hay obstaculo al frente, girar 90 grados a la IZQUIERDA
+           (fijo, ignora derecha/izquierda) y retomar.
+
+        No sigue la pared derecha, no cuenta celdas, no pasa por
+        ALINEAR -- portado tal cual de
+        sim_local/run_sim_laberinto.py::_correr_logica_simple.
+        """
+        z = self._zones
+        frente_bloqueado = z.front_valid and z.front < self._umbral_frente_pared
+
+        if frente_bloqueado:
+            self._decision_actual = 'IZQUIERDA'
+            self._giro_objetivo = self._compute_turn_target(self._yaw, 'IZQUIERDA')
+            self._publish_event(EV.GIRO, f'obstaculo al frente ({z.front:.2f}m) -> IZQUIERDA')
+            self._publish_twist(Twist())
+            self._pausa_giro_start = self.get_clock().now()
+            self._set_state('PAUSA_GIRO')
+            return
+
+        cmd = Twist()
+        cmd.linear.x = self._velocidad_recta
+        self._publish_twist(cmd)
 
     def _handle_detectar_cruce(self):
         self._publish_twist(Twist())
@@ -483,6 +527,12 @@ class StateMachineNode(Node):
         if abs(error) <= self._tolerancia_giro_rad:
             self._publish_twist(Twist())
             self._grid.apply_turn(self._decision_actual)
+            if self._logica_dos_reglas:
+                # Sin ALINEAR en este modo -- pase lo que pase, el giro
+                # ya cerro el lazo contra el yaw objetivo (90 grados
+                # fijos); vuelve directo a avanzar recto.
+                self._set_state('AVANZAR_PARALELO')
+                return
             # ALINEAR corre siempre, incluso en modo_simplificado: GIRAR
             # por si solo solo cierra el lazo contra el yaw de odometria
             # (un angulo objetivo fijo, con la deriva propia del

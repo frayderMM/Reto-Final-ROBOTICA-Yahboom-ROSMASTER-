@@ -130,7 +130,19 @@ state_machine:
     # sola lectura (sin confirmar con varias muestras) para decidir.
     # Util para calibrar el giro de 90 grados aislado del resto de la
     # logica de intersecciones. Poner en false para la corrida real.
+    # IGNORADO mientras logica_dos_reglas este en true (ver abajo).
     modo_simplificado: true
+
+    # RAMA logica-alternativa: cuando esta en true, AVANZAR_PARALELO
+    # usa SOLO DOS REGLAS en vez de seguir la pared derecha: avanzar
+    # recto mientras el frente este libre, girar 90 grados fijo a la
+    # IZQUIERDA si hay obstaculo (sin mirar derecha/izquierda, sin
+    # contar celdas, sin ALINEAR). Ver
+    # sim_local/run_sim_laberinto.py::_correr_logica_simple (el mismo
+    # comportamiento validado ahi). PONER EN FALSE antes de volver a
+    # la logica real de seguimiento de pared / antes de competencia.
+    logica_dos_reglas: true
+    velocidad_recta_mps: 0.15
 
     # --- Correccion de escala del odometro (calibrado en pista) ---
     # El ROSMASTER R2 sobreestima distancia y angulo de forma consistente.
@@ -184,10 +196,13 @@ state_machine:
     velocidad_giro_lineal_mps: 0.06
     velocidad_giro_angular_radps: 0.6
     tolerancia_giro_deg: 4.0
-    # Angulo objetivo de giro (DERECHA/IZQUIERDA) subido de 90 a 95:
-    # pedido para compensar que el arco Ackermann suele quedar corto
-    # del objetivo real. ATRAS sigue siendo 180 fijo, no usa esto.
-    angulo_giro_deg: 95.0
+    # Angulo objetivo de giro (DERECHA/IZQUIERDA). ATRAS sigue siendo
+    # 180 fijo, no usa esto. En la rama logica-alternativa se prueba
+    # con 90 exactos (pedido explicitamente: "si o si tiene que girar
+    # 90 grados") en vez de 95 -- GIRAR no mira ningun sensor mientras
+    # gira, asi que siempre completa el angulo objetivo pase lo que
+    # pase, sea 90 o 95.
+    angulo_giro_deg: 90.0
     # Pausa fija con el robot detenido entre DECIDIR (ya sabe que va a
     # girar) y el inicio del arco de GIRAR -- pedido para que el giro
     # sea un movimiento claramente separado del avance.
