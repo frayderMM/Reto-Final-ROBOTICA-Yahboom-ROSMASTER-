@@ -157,6 +157,11 @@ class StateMachineNode(Node):
             'velocidad_giro_lineal_mps': 0.08,
             'velocidad_giro_angular_radps': 0.5,
             'tolerancia_giro_deg': 4.0,
+            # Angulo objetivo de giro para DERECHA/IZQUIERDA (ATRAS
+            # siempre es 180, no usa este valor). 90 es el giro "real"
+            # de una esquina en grilla; un poco mas (ej. 95) compensa
+            # que el arco Ackermann suele quedar corto del objetivo.
+            'angulo_giro_deg': 90.0,
             # Pausa fija (segundos) con el robot detenido entre DECIDIR
             # (ya sabe que va a girar) y el inicio del arco de GIRAR --
             # pedido para que el giro sea un movimiento claramente
@@ -209,6 +214,7 @@ class StateMachineNode(Node):
         self._v_giro_lineal = float(g('velocidad_giro_lineal_mps'))
         self._v_giro_angular = float(g('velocidad_giro_angular_radps'))
         self._tolerancia_giro_rad = math.radians(float(g('tolerancia_giro_deg')))
+        self._angulo_giro_rad = math.radians(float(g('angulo_giro_deg')))
         self._tiempo_pausa_antes_girar = float(g('tiempo_pausa_antes_girar_s'))
 
         self._tolerancia_alineacion = float(g('tolerancia_alineacion_m'))
@@ -458,12 +464,11 @@ class StateMachineNode(Node):
         if elapsed >= self._tiempo_pausa_antes_girar:
             self._set_state('GIRAR')
 
-    @staticmethod
-    def _compute_turn_target(yaw: float, direction: str) -> float:
+    def _compute_turn_target(self, yaw: float, direction: str) -> float:
         if direction == 'DERECHA':
-            delta = -math.pi / 2.0
+            delta = -self._angulo_giro_rad
         elif direction == 'IZQUIERDA':
-            delta = math.pi / 2.0
+            delta = self._angulo_giro_rad
         elif direction == 'ATRAS':
             delta = math.pi
         else:

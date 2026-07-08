@@ -184,6 +184,10 @@ state_machine:
     velocidad_giro_lineal_mps: 0.06
     velocidad_giro_angular_radps: 0.6
     tolerancia_giro_deg: 4.0
+    # Angulo objetivo de giro (DERECHA/IZQUIERDA) subido de 90 a 95:
+    # pedido para compensar que el arco Ackermann suele quedar corto
+    # del objetivo real. ATRAS sigue siendo 180 fijo, no usa esto.
+    angulo_giro_deg: 95.0
     # Pausa fija con el robot detenido entre DECIDIR (ya sabe que va a
     # girar) y el inicio del arco de GIRAR -- pedido para que el giro
     # sea un movimiento claramente separado del avance.
