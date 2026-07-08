@@ -155,6 +155,15 @@ class StateMachineNode(Node):
             # corrida real de competencia.
             'logica_dos_reglas': True,
             'velocidad_recta_mps': 0.15,
+            # Tercera regla (opcional) de logica_dos_reglas: si la pared
+            # derecha esta a menos de umbral_pared_cerca_m, corregir con
+            # Kp hacia distancia_objetivo_m (misma formula que
+            # wall_follower, pero re-declarada aqui porque en este modo
+            # NO se usa wall_follow_cmd en absoluto).
+            'umbral_pared_cerca_m': 0.30,
+            'distancia_objetivo_m': 0.12,
+            'ganancia_distancia_recta': 2.0,
+            'angular_max_recta_radps': 0.6,
             'umbral_frente_pared_m': 0.25,
             'umbral_frente_libre_m': 0.35,
             'umbral_lado_libre_m': 0.40,
@@ -215,6 +224,10 @@ class StateMachineNode(Node):
         self._modo_simplificado = bool(g('modo_simplificado'))
         self._logica_dos_reglas = bool(g('logica_dos_reglas'))
         self._velocidad_recta = float(g('velocidad_recta_mps'))
+        self._umbral_pared_cerca = float(g('umbral_pared_cerca_m'))
+        self._distancia_objetivo_recta = float(g('distancia_objetivo_m'))
+        self._ganancia_distancia_recta = float(g('ganancia_distancia_recta'))
+        self._angular_max_recta = float(g('angular_max_recta_radps'))
 
         self._umbral_frente_pared = float(g('umbral_frente_pared_m'))
         self._umbral_frente_libre = float(g('umbral_frente_libre_m'))
@@ -380,14 +393,17 @@ class StateMachineNode(Node):
         self._publish_twist(self._wall_follow_cmd)
 
     def _handle_avanzar_paralelo_dos_reglas(self):
-        """SOLO DOS REGLAS (ver logica_dos_reglas arriba):
+        """TRES REGLAS (ver logica_dos_reglas arriba):
 
         1. Avanzar recto mientras el frente este libre.
-        2. Si hay obstaculo al frente, girar 90 grados a la IZQUIERDA
+        2. Si la pared derecha esta a menos de umbral_pared_cerca_m,
+           corregir con Kp hacia distancia_objetivo_m para mantenerse
+           cerca (misma formula que wall_follower_node, re-declarada
+           aqui porque este modo no usa wall_follow_cmd).
+        3. Si hay obstaculo al frente, girar 90 grados a la IZQUIERDA
            (fijo, ignora derecha/izquierda) y retomar.
 
-        No sigue la pared derecha, no cuenta celdas, no pasa por
-        ALINEAR -- portado tal cual de
+        No cuenta celdas ni pasa por ALINEAR -- portado tal cual de
         sim_local/run_sim_laberinto.py::_correr_logica_simple.
         """
         z = self._zones
@@ -404,6 +420,10 @@ class StateMachineNode(Node):
 
         cmd = Twist()
         cmd.linear.x = self._velocidad_recta
+        if z.right_valid and z.right < self._umbral_pared_cerca:
+            error = self._distancia_objetivo_recta - z.right
+            angular = self._ganancia_distancia_recta * error
+            cmd.angular.z = max(-self._angular_max_recta, min(self._angular_max_recta, angular))
         self._publish_twist(cmd)
 
     def _handle_detectar_cruce(self):

@@ -133,16 +133,21 @@ state_machine:
     # IGNORADO mientras logica_dos_reglas este en true (ver abajo).
     modo_simplificado: true
 
-    # RAMA logica-alternativa: cuando esta en true, AVANZAR_PARALELO
-    # usa SOLO DOS REGLAS en vez de seguir la pared derecha: avanzar
-    # recto mientras el frente este libre, girar 90 grados fijo a la
-    # IZQUIERDA si hay obstaculo (sin mirar derecha/izquierda, sin
-    # contar celdas, sin ALINEAR). Ver
+    # Logica simplificada de AVANZAR_PARALELO (reemplaza el seguimiento
+    # de pared con wall_follow_cmd): avanzar recto mientras el frente
+    # este libre, corregir hacia la pared derecha solo si esta a menos
+    # de umbral_pared_cerca_m, girar 90 grados fijo a la IZQUIERDA si
+    # hay obstaculo al frente (sin mirar derecha/izquierda, sin contar
+    # celdas, sin ALINEAR). Ver
     # sim_local/run_sim_laberinto.py::_correr_logica_simple (el mismo
     # comportamiento validado ahi). PONER EN FALSE antes de volver a
     # la logica real de seguimiento de pared / antes de competencia.
     logica_dos_reglas: true
     velocidad_recta_mps: 0.15
+    umbral_pared_cerca_m: 0.30
+    distancia_objetivo_m: 0.12
+    ganancia_distancia_recta: 2.0
+    angular_max_recta_radps: 0.6
 
     # --- Correccion de escala del odometro (calibrado en pista) ---
     # El ROSMASTER R2 sobreestima distancia y angulo de forma consistente.
