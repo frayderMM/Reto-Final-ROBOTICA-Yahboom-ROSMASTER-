@@ -92,6 +92,15 @@ def parse_args():
     p.add_argument('--ancho-robot', type=float, default=0.16)
     p.add_argument('--max-pasos', type=int, default=20000)
     p.add_argument('--dibujar-cada', type=int, default=3)
+    p.add_argument('--logica', choices=['simple', 'actual'], default='simple',
+                    help='simple: avanzar recto, pegarse a la pared derecha si esta a menos '
+                         'de --umbral-pared-cerca, seguir recto si esta mas lejos, girar '
+                         'izquierda si hay obstaculo al frente (sin PAUSA_GIRO/ALINEAR ni '
+                         'decision de grilla derecha/frente/izquierda/atras). '
+                         'actual: la maquina de estados completa (DECIDIR/PAUSA_GIRO/GIRAR/ALINEAR).')
+    p.add_argument('--umbral-pared-cerca', type=float, default=0.20,
+                    help='solo --logica simple: por debajo de esto, corrige para pegarse a la '
+                         'pared derecha; por encima, sigue recto sin corregir')
     return p.parse_args()
 
 
@@ -109,6 +118,13 @@ def zona_min(angulos, rangos, ventana_deg, range_min=RANGE_MIN, range_max=RANGE_
 
 def main():
     args = parse_args()
+    if args.logica == 'simple':
+        _correr_logica_simple(args)
+    else:
+        _correr_logica_actual(args)
+
+
+def _correr_logica_actual(args):
     if args.margen_avance is None:
         args.margen_avance = args.celda_decision * (0.05 / 0.60)
 
@@ -274,6 +290,107 @@ def main():
     plt.show()
 
 
+def _correr_logica_simple(args):
+    """Cuatro reglas, sin grilla de decision ni PAUSA_GIRO/ALINEAR:
+
+    1. Avanzar recto.
+    2. Si hay pared derecha cerca (< --umbral-pared-cerca), corregir
+       para mantenerse pegado a ella (Kp hacia --distancia-objetivo).
+    3. Si la pared derecha esta mas lejos que eso, seguir recto sin
+       corregir (no la busca activamente).
+    4. Si hay obstaculo al frente (< --umbral-frente-pared), girar a
+       la IZQUIERDA (--angulo-giro) y retomar.
+    """
+    inicio_x, inicio_y = 0.5 * args.celda_real, 3.5 * args.celda_real
+    meta_x, meta_y = 5.5 * args.celda_real, 0.5 * args.celda_real
+    umbral_meta = 0.25 * args.celda_real
+
+    params_giro = ParametrosGiro(
+        velocidad_lineal_mps=args.v_giro_lineal,
+        velocidad_angular_radps=args.v_giro_angular,
+        tolerancia_giro_deg=args.tolerancia_giro_deg,
+    )
+
+    pasillo = pasillo_laberinto_completo(celda_m=args.celda_real)
+
+    pose = Pose(x=inicio_x, y=inicio_y, theta=INICIO_THETA)
+    estado = 'AVANZAR'
+    giro_objetivo = None
+    ultima_decision_info = ''
+    num_giros = 0
+
+    trayectoria_x, trayectoria_y = [pose.x], [pose.y]
+    rng = np.random.default_rng(0)
+
+    plt.ion()
+    fig, ax = plt.subplots(figsize=(9, 7))
+
+    print('Cierra la ventana o Ctrl+C para detener.')
+    try:
+        paso = 0
+        while paso < args.max_pasos:
+            angulos, rangos = escanear(
+                pose.como_tupla(), pasillo,
+                angle_min=-math.pi, angle_max=math.pi, num_puntos=NUM_PUNTOS_SCAN,
+                range_max=RANGE_MAX, range_min=RANGE_MIN, ruido_std=0.0, rng=rng,
+            )
+
+            if estado == 'AVANZAR':
+                right_d, right_v = zona_min(angulos, rangos, tuple(args.ventana_decision))
+                front_d, front_v = zona_min(angulos, rangos, VENT_FRONT)
+                frente_bloqueado = front_v and front_d < args.umbral_frente_pared
+
+                if frente_bloqueado:
+                    num_giros += 1
+                    giro_objetivo = calcular_objetivo_giro(
+                        pose.theta, 'IZQUIERDA', angulo_deg=args.angulo_giro
+                    )
+                    ultima_decision_info = f'obstaculo al frente ({front_d*100:.0f}cm) -> IZQUIERDA'
+                    print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
+                          f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
+                    estado = 'GIRAR_IZQUIERDA'
+                    ajuste = None
+                else:
+                    pared_cerca = right_v and right_d < args.umbral_pared_cerca
+                    if pared_cerca:
+                        error = args.distancia_objetivo - right_d
+                        w = args.ganancia_distancia * error
+                    else:
+                        w = 0.0
+                    w = max(-args.angular_max, min(args.angular_max, w))
+                    pose = integrar(pose, args.velocidad, w, DT)
+                    ajuste = None
+
+            elif estado == 'GIRAR_IZQUIERDA':
+                v, w, terminado = calcular_comando_giro(pose.theta, giro_objetivo, params_giro)
+                pose = integrar(pose, v, w, DT)
+                ajuste = None
+                if terminado:
+                    estado = 'AVANZAR'
+
+            trayectoria_x.append(pose.x)
+            trayectoria_y.append(pose.y)
+            paso += 1
+
+            dist_meta = math.hypot(pose.x - meta_x, pose.y - meta_y)
+            if dist_meta < umbral_meta:
+                print(f'\n*** META ALCANZADA en paso {paso} ***')
+                break
+
+            if paso % args.dibujar_cada == 0:
+                _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado,
+                         ultima_decision_info, None, 0, num_giros,
+                         trayectoria_x, trayectoria_y, args, inicio_x, inicio_y, meta_x, meta_y)
+                plt.pause(0.001)
+    except KeyboardInterrupt:
+        pass
+
+    print(f'\nFin: paso={paso} estado={estado} giros={num_giros} '
+          f'x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm theta={math.degrees(pose.theta):+.0f}')
+    plt.ioff()
+    plt.show()
+
+
 def _dibujar_robot(ax, pose, largo, ancho):
     hl, hw = largo / 2.0, ancho / 2.0
     esquinas_local = np.array([[hl, hw], [hl, -hw], [-hl, -hw], [-hl, hw]])
@@ -326,6 +443,10 @@ def _descripcion_accion(estado, decision_actual, args):
         return f'Girando {direccion} (objetivo {args.angulo_giro:.0f}°, arco Ackermann)'
     if estado == 'ALINEAR':
         return 'Alineando con la pared real (corrigiendo con el LiDAR, S1/S2)'
+    if estado == 'AVANZAR':
+        return 'Avanzando recto (logica simple)'
+    if estado == 'GIRAR_IZQUIERDA':
+        return f'Obstaculo al frente -> girando IZQUIERDA (objetivo {args.angulo_giro:.0f}°)'
     return estado
 
 
@@ -357,6 +478,7 @@ def _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado, decision_info,
     color_estado = {
         'AVANZAR_PARALELO': 'black', 'PAUSA_GIRO': 'firebrick',
         'GIRAR': 'purple', 'ALINEAR': 'teal',
+        'AVANZAR': 'black', 'GIRAR_IZQUIERDA': 'purple',
     }.get(estado, 'black')
     accion = _descripcion_accion(estado, decision_actual, args)
     info = f'estado={estado}  celdas={num_celdas}  giros={num_giros}\n{decision_info}'
