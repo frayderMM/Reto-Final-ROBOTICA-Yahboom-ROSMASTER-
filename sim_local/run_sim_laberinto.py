@@ -45,6 +45,8 @@ RANGE_MIN = 0.03
 
 VENT_LINEA = (-110.0, -70.0)
 VENT_FRONT = (-15.0, 15.0)
+VENT_FRONT_ESTRECHO = (-8.0, 8.0)  # cono mas angosto para logica simple: evita confundir
+                                    # una pared lateral vista en diagonal con un obstaculo real
 VENT_LEFT = (70.0, 110.0)
 VENT_RIGHT_FRONT = (-75.0, -45.0)   # S1, usado por ALINEAR
 VENT_RIGHT_REAR = (-135.0, -105.0)  # S2, usado por ALINEAR
@@ -104,6 +106,10 @@ def parse_args():
     p.add_argument('--umbral-pared-cerca', type=float, default=0.30,
                     help='solo --logica simple: por debajo de esto, corrige para pegarse a la '
                          'pared derecha; por encima, sigue recto sin corregir')
+    p.add_argument('--frente-confirmaciones', type=int, default=3,
+                    help='solo --logica simple: ciclos seguidos con el frente bloqueado antes '
+                         'de girar (evita que un vistazo diagonal de un solo ciclo dispare un '
+                         'giro innecesario)')
     return p.parse_args()
 
 
@@ -294,14 +300,22 @@ def _correr_logica_actual(args):
 
 
 def _correr_logica_simple(args):
-    """TRES reglas, sin grilla de decision ni PAUSA_GIRO/ALINEAR:
+    """TRES reglas, sin grilla de decision ni PAUSA_GIRO/ALINEAR, pero
+    con AJUSTE DE LINEA (no solo distancia puntual) para el lado
+    derecho -- evita confundir una pared vista en diagonal con un
+    obstaculo nuevo, porque el ajuste da angulo Y distancia en vez de
+    un numero suelto:
 
     1. Avanzar recto mientras el frente este libre.
-    2. Si hay pared derecha a menos de --umbral-pared-cerca (30cm),
-       usar correccion lateral (Kp hacia --distancia-objetivo) para
-       mantenerse cerca -- igual formula que el seguimiento de pared
-       original, pero solo activa por debajo de este umbral.
-    3. Si detecta un obstaculo al frente, girar a la IZQUIERDA
+    2. Si hay ajuste de linea valido de la pared derecha, corregir con
+       Kp (angulo + distancia hacia --distancia-objetivo, formula de
+       wall_follow_control.calcular_comando) para mantenerse paralelo
+       y cerca -- sigue corrigiendo aunque la pared este mas lejos que
+       --umbral-pared-cerca, ya que el ajuste de linea es mas preciso
+       que una distancia puntual.
+    3. Si detecta un obstaculo al frente (cono angosto, ver
+       VENT_FRONT_ESTRECHO) sostenido durante --frente-confirmaciones
+       ciclos seguidos (no un solo vistazo), girar a la IZQUIERDA
        (--angulo-giro) y retomar.
 
     Arranca paralelo a la pared inferior (fila 4, mirando al ESTE/
@@ -313,6 +327,14 @@ def _correr_logica_simple(args):
     umbral_meta = 0.25 * args.celda_real
     theta_inicio = 0.0  # mirando al este, paralelo a la pared inferior
 
+    params_wf = ParametrosControl(
+        distancia_objetivo_m=args.distancia_objetivo,
+        velocidad_lineal_mps=args.velocidad,
+        ganancia_angulo=args.ganancia_angulo,
+        ganancia_distancia=args.ganancia_distancia,
+        ganancia_heading=args.ganancia_heading,
+        angular_max_radps=args.angular_max,
+    )
     params_giro = ParametrosGiro(
         velocidad_lineal_mps=args.v_giro_lineal,
         velocidad_angular_radps=args.v_giro_angular,
@@ -322,10 +344,13 @@ def _correr_logica_simple(args):
     pasillo = pasillo_laberinto_completo(celda_m=args.celda_real)
 
     pose = Pose(x=inicio_x, y=inicio_y, theta=theta_inicio)
+    heading_objetivo = None
+    ultima_distancia_valida = None
     estado = 'AVANZAR'
     giro_objetivo = None
     ultima_decision_info = ''
     num_giros = 0
+    contador_frente = 0
 
     trayectoria_x, trayectoria_y = [pose.x], [pose.y]
     rng = np.random.default_rng(0)
@@ -344,11 +369,14 @@ def _correr_logica_simple(args):
             )
 
             if estado == 'AVANZAR':
-                front_d, front_v = zona_min(angulos, rangos, VENT_FRONT)
-                frente_bloqueado = front_v and front_d < args.umbral_frente_pared
+                front_d, front_v = zona_min(angulos, rangos, VENT_FRONT_ESTRECHO)
+                frente_cerca_1_ciclo = front_v and front_d < args.umbral_frente_pared
+                contador_frente = contador_frente + 1 if frente_cerca_1_ciclo else 0
+                frente_bloqueado = contador_frente >= args.frente_confirmaciones
 
                 if frente_bloqueado:
                     num_giros += 1
+                    contador_frente = 0
                     giro_objetivo = calcular_objetivo_giro(
                         pose.theta, 'IZQUIERDA', angulo_deg=args.angulo_giro
                     )
@@ -358,16 +386,12 @@ def _correr_logica_simple(args):
                     estado = 'GIRAR_IZQUIERDA'
                     ajuste = None
                 else:
-                    right_d, right_v = zona_min(angulos, rangos, tuple(args.ventana_decision))
-                    pared_cerca = right_v and right_d < args.umbral_pared_cerca
-                    if pared_cerca:
-                        error = args.distancia_objetivo - right_d
-                        w = args.ganancia_distancia * error
-                        w = max(-args.angular_max, min(args.angular_max, w))
-                    else:
-                        w = 0.0
-                    pose = integrar(pose, args.velocidad, w, DT)
-                    ajuste = None
+                    ajuste = ajustar_linea_pared(angulos, rangos, *VENT_LINEA,
+                                                  range_min=RANGE_MIN, range_max=RANGE_MAX, min_puntos=6)
+                    v, w, heading_objetivo, ultima_distancia_valida = calcular_comando(
+                        ajuste, pose.theta, heading_objetivo, ultima_distancia_valida, params_wf
+                    )
+                    pose = integrar(pose, v, w, DT)
 
             elif estado == 'GIRAR_IZQUIERDA':
                 v, w, terminado = calcular_comando_giro(pose.theta, giro_objetivo, params_giro)
