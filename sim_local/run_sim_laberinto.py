@@ -76,7 +76,7 @@ def parse_args():
     p.add_argument('--tiempo-max-alinear', type=float, default=4.0)
     p.add_argument('--v-alinear-lineal', type=float, default=0.06)
     p.add_argument('--v-alinear-angular', type=float, default=0.3)
-    p.add_argument('--umbral-frente-pared', type=float, default=0.30)
+    p.add_argument('--umbral-frente-pared', type=float, default=0.40)
     p.add_argument('--umbral-frente-libre', type=float, default=0.35)
     p.add_argument('--umbral-lado-libre', type=float, default=0.40)
     p.add_argument('--celda-real', type=float, default=0.60,

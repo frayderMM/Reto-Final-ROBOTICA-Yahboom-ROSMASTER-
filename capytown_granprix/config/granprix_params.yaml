@@ -175,7 +175,7 @@ state_machine:
     # subiendo este umbral y velocidad_giro_angular_radps (ver abajo) el
     # margen sube a ~4.7 cm sin tocar distancia_objetivo_m (ya validado
     # para el seguimiento recto).
-    umbral_frente_pared_m: 0.30    # pared al frente: detener avance
+    umbral_frente_pared_m: 0.40    # pared al frente: detener avance
     umbral_frente_libre_m: 0.35    # frente libre para avanzar/decidir
     umbral_lado_libre_m: 0.40      # camino lateral libre (derecha/izquierda)
 
