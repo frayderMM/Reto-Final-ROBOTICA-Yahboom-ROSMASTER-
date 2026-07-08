@@ -290,13 +290,21 @@ def pasillo_frente_bloqueado_gira_izquierda(
     return p
 
 
-def pasillo_laberinto_completo() -> Pasillo:
+def pasillo_laberinto_completo(celda_m: float = 0.60) -> Pasillo:
     """Laberinto completo Gran Prix CapyTown, coordenadas EXACTAS de
     DETALLE_PISTA.md (centimetros -> metros, /100). Origen (0,0) en la
     esquina superior izquierda, X crece a la derecha (0-360cm), Y
     crece hacia ABAJO (0-240cm) -- igual convencion que el plano
     oficial. Inicio en A4 (centro aprox. x=0.30 y=2.10), meta en F1.
+
+    ``celda_m`` escala TODO el laberinto (mismo trazado de paredes,
+    misma grilla de 6x4 celdas) a un tamano de celda distinto al real
+    (0.60m). Por ejemplo celda_m=0.30 da un laberinto de 180x120cm con
+    celdas de 30x30cm en vez de 360x240cm con celdas de 60x60cm -- util
+    para probar a nivel de simulacion sin depender del robot fisico
+    (que sigue teniendo el tamano real, 24x16cm, no escalado).
     """
+    escala = celda_m / 0.60
     segmentos_cm = [
         # Paredes perimetrales (P01-P18)
         (0, 0, 60, 0), (60, 0, 120, 0), (120, 0, 180, 0),
@@ -316,5 +324,6 @@ def pasillo_laberinto_completo() -> Pasillo:
     ]
     p = Pasillo()
     for x1, y1, x2, y2 in segmentos_cm:
-        p.agregar(x1 / 100.0, y1 / 100.0, x2 / 100.0, y2 / 100.0)
+        p.agregar(x1 / 100.0 * escala, y1 / 100.0 * escala,
+                  x2 / 100.0 * escala, y2 / 100.0 * escala)
     return p

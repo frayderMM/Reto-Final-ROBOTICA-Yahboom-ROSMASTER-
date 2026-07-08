@@ -49,11 +49,7 @@ VENT_LEFT = (70.0, 110.0)
 VENT_RIGHT_FRONT = (-75.0, -45.0)   # S1, usado por ALINEAR
 VENT_RIGHT_REAR = (-135.0, -105.0)  # S2, usado por ALINEAR
 
-# Centro de A4 (entrada) en cm -> m, mirando hacia el "norte" (Y
-# decreciente, hacia A3/A2/A1) para iniciar el recorrido.
-INICIO_X = 0.30
-INICIO_Y = 2.10
-INICIO_THETA = -math.pi / 2.0
+INICIO_THETA = -math.pi / 2.0  # mirando hacia el "norte" (Y decreciente), hacia A3/A2/A1
 
 
 def parse_args():
@@ -78,8 +74,14 @@ def parse_args():
     p.add_argument('--umbral-frente-pared', type=float, default=0.30)
     p.add_argument('--umbral-frente-libre', type=float, default=0.35)
     p.add_argument('--umbral-lado-libre', type=float, default=0.40)
-    p.add_argument('--celda', type=float, default=0.60)
-    p.add_argument('--margen-avance', type=float, default=0.05)
+    p.add_argument('--celda', type=float, default=0.30,
+                    help='tamano de celda del laberinto (m). El trazado real de '
+                         'DETALLE_PISTA.md es de 0.60; se escala completo a este valor '
+                         '-- ver docstring de pasillo_laberinto_completo(). El robot NO '
+                         'se escala (sigue siendo 24x16cm), asi que celdas chicas pueden '
+                         'dejar muy poco margen real.')
+    p.add_argument('--margen-avance', type=float, default=None,
+                    help='por defecto, proporcional a --celda (misma fraccion que 0.05/0.60)')
     p.add_argument('--ventana-decision', type=float, nargs=2, default=[-100.0, -80.0])
     p.add_argument('--largo-robot', type=float, default=0.24)
     p.add_argument('--ancho-robot', type=float, default=0.16)
@@ -102,6 +104,13 @@ def zona_min(angulos, rangos, ventana_deg, range_min=RANGE_MIN, range_max=RANGE_
 
 def main():
     args = parse_args()
+    if args.margen_avance is None:
+        args.margen_avance = args.celda * (0.05 / 0.60)
+
+    # Centro de A4 (inicio) y F1 (meta), escalados al tamano de celda actual.
+    inicio_x, inicio_y = 0.5 * args.celda, 3.5 * args.celda
+    meta_x, meta_y = 5.5 * args.celda, 0.5 * args.celda
+    umbral_meta = 0.25 * args.celda
 
     params_wf = ParametrosControl(
         distancia_objetivo_m=args.distancia_objetivo,
@@ -123,9 +132,9 @@ def main():
         tiempo_max_s=args.tiempo_max_alinear,
     )
 
-    pasillo = pasillo_laberinto_completo()
+    pasillo = pasillo_laberinto_completo(celda_m=args.celda)
 
-    pose = Pose(x=INICIO_X, y=INICIO_Y, theta=INICIO_THETA)
+    pose = Pose(x=inicio_x, y=inicio_y, theta=INICIO_THETA)
     heading_objetivo = None
     ultima_distancia_valida = None
     cell_start = (pose.x, pose.y)
@@ -239,16 +248,16 @@ def main():
             trayectoria_y.append(pose.y)
             paso += 1
 
-            # Meta aproximada: centro de F1 (330, 30 cm).
-            dist_meta = math.hypot(pose.x - 3.30, pose.y - 0.30)
-            if dist_meta < 0.15:
+            # Meta aproximada: centro de F1.
+            dist_meta = math.hypot(pose.x - meta_x, pose.y - meta_y)
+            if dist_meta < umbral_meta:
                 print(f'\n*** META ALCANZADA en paso {paso} ***')
                 break
 
             if paso % args.dibujar_cada == 0:
                 _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado,
                          ultima_decision_info, decision_actual, num_celdas, num_giros,
-                         trayectoria_x, trayectoria_y, args)
+                         trayectoria_x, trayectoria_y, args, inicio_x, inicio_y, meta_x, meta_y)
                 plt.pause(0.001)
     except KeyboardInterrupt:
         pass
@@ -272,15 +281,15 @@ def _dibujar_robot(ax, pose, largo, ancho):
     ax.plot([pose.x, frente[0]], [pose.y, frente[1]], color='gold', linewidth=2, zorder=6)
 
 
-def _dibujar_grid(ax):
+def _dibujar_grid(ax, celda_m):
     for col in range(7):
-        ax.axvline(col * 0.6, color='lightgray', linewidth=0.5, zorder=0)
+        ax.axvline(col * celda_m, color='lightgray', linewidth=0.5, zorder=0)
     for row in range(5):
-        ax.axhline(row * 0.6, color='lightgray', linewidth=0.5, zorder=0)
+        ax.axhline(row * celda_m, color='lightgray', linewidth=0.5, zorder=0)
     letras = 'ABCDEF'
     for c in range(6):
         for r in range(4):
-            ax.text((c + 0.5) * 0.6, (r + 0.5) * 0.6, f'{letras[c]}{r+1}',
+            ax.text((c + 0.5) * celda_m, (r + 0.5) * celda_m, f'{letras[c]}{r+1}',
                      ha='center', va='center', fontsize=8, color='lightgray', zorder=0)
 
 
@@ -300,10 +309,11 @@ def _descripcion_accion(estado, decision_actual, args):
 
 
 def _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado, decision_info,
-             decision_actual, num_celdas, num_giros, tx, ty, args):
+             decision_actual, num_celdas, num_giros, tx, ty, args,
+             inicio_x, inicio_y, meta_x, meta_y):
     ax.clear()
 
-    _dibujar_grid(ax)
+    _dibujar_grid(ax, args.celda)
 
     for seg in pasillo.segmentos:
         ax.plot([seg.a[0], seg.b[0]], [seg.a[1], seg.b[1]], color='saddlebrown', linewidth=3)
@@ -320,8 +330,8 @@ def _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado, decision_info,
         py = pose.y + r * np.sin(pose.theta + a)
         ax.scatter(px, py, s=6, color='tab:red', zorder=4)
 
-    ax.plot(0.30, 2.10, marker='*', markersize=14, color='tab:green', zorder=7)
-    ax.plot(3.30, 0.30, marker='*', markersize=14, color='tab:orange', zorder=7)
+    ax.plot(inicio_x, inicio_y, marker='*', markersize=14, color='tab:green', zorder=7)
+    ax.plot(meta_x, meta_y, marker='*', markersize=14, color='tab:orange', zorder=7)
 
     color_estado = {
         'AVANZAR_PARALELO': 'black', 'PAUSA_GIRO': 'firebrick',
@@ -335,8 +345,9 @@ def _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado, decision_info,
             bbox=dict(boxstyle='round,pad=0.4', facecolor='white', edgecolor=color_estado, alpha=0.9),
             zorder=10)
 
-    ax.set_xlim(-0.3, 3.9)
-    ax.set_ylim(2.7, -0.3)  # invertido: Y crece hacia abajo, igual que el plano
+    margen = args.celda * 0.5
+    ax.set_xlim(-margen, 6 * args.celda + margen)
+    ax.set_ylim(4 * args.celda + margen, -margen)  # invertido: Y crece hacia abajo
     ax.set_aspect('equal')
 
 
