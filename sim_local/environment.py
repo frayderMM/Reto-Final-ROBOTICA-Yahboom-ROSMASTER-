@@ -327,3 +327,44 @@ def pasillo_laberinto_completo(celda_m: float = 0.60) -> Pasillo:
         p.agregar(x1 / 100.0 * escala, y1 / 100.0 * escala,
                   x2 / 100.0 * escala, y2 / 100.0 * escala)
     return p
+
+
+def pasillo_obstaculo_perpendicular(
+    largo_pared_m: float = 1.80,
+    ancho_m: float = 0.60,
+    x_inicio: float = 0.0,
+    x_obstaculo_m: Optional[float] = None,
+    largo_obstaculo_m: float = 0.60,
+) -> Pasillo:
+    """Pared derecha recta y larga (la que el robot sigue) con un
+    obstaculo PERPENDICULAR clavado a mitad de camino -- no una esquina
+    de la grilla, sino un muro que sale de la pared seguida hacia
+    adentro del pasillo (como V02-V06 del laberinto real sobresaliendo
+    en un cruce mas ancho de lo normal). Mas alla de la punta del
+    obstaculo el espacio sigue abierto: el robot tiene que esquivarlo
+    por arriba y volver a la pared despues, no girar 90 grados como en
+    una esquina real.
+
+    ``largo_obstaculo_m`` (0.60 por defecto, pedido explicitamente):
+    que tanto sobresale el obstaculo hacia adentro del pasillo. Con
+    ancho_m=0.60 (un pasillo normal) un obstaculo de 0.60 tapa TODO el
+    ancho -- para que realmente se pueda esquivar por arriba, el
+    pasillo en esta zona debe ser mas ancho que el obstaculo (ver nota
+    en el caller / usar ancho_m > largo_obstaculo_m).
+    """
+    p = Pasillo()
+
+    y_der_0 = -ancho_m / 2.0
+    x_fin = x_inicio + largo_pared_m
+    x_obs = x_obstaculo_m if x_obstaculo_m is not None else x_inicio + largo_pared_m / 2.0
+
+    # Pared derecha (la que el robot sigue), en DOS tramos separados
+    # por donde sale el obstaculo (no se dibuja pared "dentro" del
+    # obstaculo mismo, ya que el obstaculo ocupa ese punto).
+    p.agregar(x_inicio, y_der_0, x_obs, y_der_0)
+    p.agregar(x_obs, y_der_0, x_fin, y_der_0)
+
+    # Obstaculo perpendicular, sale de la pared derecha hacia adentro.
+    p.agregar(x_obs, y_der_0, x_obs, y_der_0 - largo_obstaculo_m)
+
+    return p
