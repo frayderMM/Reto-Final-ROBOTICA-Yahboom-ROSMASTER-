@@ -12,8 +12,13 @@ Maquina de estados (ver logica_pared_derecha_robot.md y
 DETALLE RETO 3.md):
 
     INICIAR -> AVANZAR_PARALELO -> DETECTAR_CRUCE -> BUSCAR_PARE
-    -> DECIDIR -> GIRAR -> ALINEAR -> VERIFICAR_META -> (META
-    o vuelve a AVANZAR_PARALELO)
+    -> DECIDIR -> PAUSA_GIRO -> GIRAR -> ALINEAR -> VERIFICAR_META
+    -> (META o vuelve a AVANZAR_PARALELO)
+
+    PAUSA_GIRO (fuera de la lista original del documento de referencia)
+    es una espera fija de ``tiempo_pausa_antes_girar_s`` con el robot
+    detenido entre "ya decidi" y "empiezo a girar", para que el giro se
+    vea como un movimiento separado del avance.
 
 Se agrega un estado adicional ``DETENIDO`` (fuera de la lista pedida)
 solo como red de seguridad ante un limite de celdas recorridas sin
@@ -80,6 +85,7 @@ class StateMachineNode(Node):
         self._decision_actual = 'NINGUNO'
         self._giro_objetivo = 0.0
         self._alinear_start = None
+        self._pausa_giro_start = None
 
         self._esperando_obstaculo = False
         self._espera_obstaculo_inicio = None
@@ -90,6 +96,7 @@ class StateMachineNode(Node):
             'DETECTAR_CRUCE': self._handle_detectar_cruce,
             'BUSCAR_PARE': self._handle_buscar_pare,
             'DECIDIR': self._handle_decidir,
+            'PAUSA_GIRO': self._handle_pausa_giro,
             'GIRAR': self._handle_girar,
             'ALINEAR': self._handle_alinear,
             'VERIFICAR_META': self._handle_verificar_meta,
@@ -150,6 +157,11 @@ class StateMachineNode(Node):
             'velocidad_giro_lineal_mps': 0.08,
             'velocidad_giro_angular_radps': 0.5,
             'tolerancia_giro_deg': 4.0,
+            # Pausa fija (segundos) con el robot detenido entre DECIDIR
+            # (ya sabe que va a girar) y el inicio del arco de GIRAR --
+            # pedido para que el giro sea un movimiento claramente
+            # separado del avance, no una transicion instantanea.
+            'tiempo_pausa_antes_girar_s': 1.0,
             'tolerancia_alineacion_m': 0.02,
             'tiempo_max_alinear_s': 4.0,
             'velocidad_alineacion_lineal_mps': 0.06,
@@ -197,6 +209,7 @@ class StateMachineNode(Node):
         self._v_giro_lineal = float(g('velocidad_giro_lineal_mps'))
         self._v_giro_angular = float(g('velocidad_giro_angular_radps'))
         self._tolerancia_giro_rad = math.radians(float(g('tolerancia_giro_deg')))
+        self._tiempo_pausa_antes_girar = float(g('tiempo_pausa_antes_girar_s'))
 
         self._tolerancia_alineacion = float(g('tolerancia_alineacion_m'))
         self._tiempo_max_alinear = float(g('tiempo_max_alinear_s'))
@@ -432,7 +445,18 @@ class StateMachineNode(Node):
 
         self._giro_objetivo = self._compute_turn_target(self._yaw, direction)
         self._publish_event(EV.GIRO, f'{direction} desde {self._grid.cell}')
-        self._set_state('GIRAR')
+        self._publish_twist(Twist())
+        self._pausa_giro_start = self.get_clock().now()
+        self._set_state('PAUSA_GIRO')
+
+    def _handle_pausa_giro(self):
+        """Robot detenido ``tiempo_pausa_antes_girar_s`` antes de arrancar
+        el arco de GIRAR -- separa visiblemente "termine de avanzar" de
+        "empiezo a girar" en vez de una transicion instantanea."""
+        self._publish_twist(Twist())
+        elapsed = (self.get_clock().now() - self._pausa_giro_start).nanoseconds / 1e9
+        if elapsed >= self._tiempo_pausa_antes_girar:
+            self._set_state('GIRAR')
 
     @staticmethod
     def _compute_turn_target(yaw: float, direction: str) -> float:

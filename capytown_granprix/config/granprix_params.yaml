@@ -160,7 +160,17 @@ state_machine:
     umbral_colision_m: 0.10
     tiempo_espera_obstaculo_s: 2.0
 
-    distancia_celda_m: 0.60
+    # distancia_celda_m subido de 0.60 a 5.00 TEMPORALMENTE: para la
+    # prueba aislada del giro en un pasillo largo sin intersecciones
+    # reales cada 60cm, el chequeo periodico de "celda" (parar cada
+    # distancia_celda_m - margen_avance_m para revisar derecha/frente/
+    # izquierda) se disparaba en mitad del pasillo y frenaba al robot
+    # sin que hubiera ninguna esquina ahi. Con este valor alto, solo el
+    # umbral_frente_pared_m (pared real al frente) dispara la parada.
+    # VOLVER A 0.60 antes de la corrida real en el laberinto (grilla de
+    # 60cm) -- si no, nunca revisa intersecciones dentro de un pasillo
+    # largo real.
+    distancia_celda_m: 5.00
     margen_avance_m: 0.05          # se detiene en 0.55 m para no pasarse del cruce
 
     # Confirmacion de lecturas en el cruce (evita falsos cruces por ruido).
@@ -174,6 +184,10 @@ state_machine:
     velocidad_giro_lineal_mps: 0.06
     velocidad_giro_angular_radps: 0.6
     tolerancia_giro_deg: 4.0
+    # Pausa fija con el robot detenido entre DECIDIR (ya sabe que va a
+    # girar) y el inicio del arco de GIRAR -- pedido para que el giro
+    # sea un movimiento claramente separado del avance.
+    tiempo_pausa_antes_girar_s: 1.0
 
     # --- Alineacion tras el giro ---
     tolerancia_alineacion_m: 0.02
