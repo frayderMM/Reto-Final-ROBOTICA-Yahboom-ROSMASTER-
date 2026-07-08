@@ -136,11 +136,13 @@ class StateMachineNode(Node):
             'robot_state_topic': '/robot_state',
             'usar_camara': True,
             'control_rate_hz': 20.0,
-            # Modo de prueba: si es true, se saltan DETECTAR_CRUCE,
-            # BUSCAR_PARE, ALINEAR y VERIFICAR_META -- solo queda
-            # AVANZAR_PARALELO <-> GIRAR, usando una lectura unica
-            # (sin confirmar con varias muestras) para decidir. Util
-            # para calibrar el giro de 90 grados de forma aislada.
+            # Modo de prueba: si es true, se saltan DETECTAR_CRUCE y
+            # BUSCAR_PARE -- decide con una lectura unica (sin
+            # confirmar con varias muestras). ALINEAR SI corre (no se
+            # salta): es el paso que corrige el giro contra la pared
+            # real via LiDAR en vez de confiar solo en el angulo
+            # objetivo fijo + odometria. Util para calibrar el giro de
+            # forma aislada, con el feedback de alineacion incluido.
             'modo_simplificado': False,
             'umbral_frente_pared_m': 0.25,
             'umbral_frente_libre_m': 0.35,
@@ -481,12 +483,14 @@ class StateMachineNode(Node):
         if abs(error) <= self._tolerancia_giro_rad:
             self._publish_twist(Twist())
             self._grid.apply_turn(self._decision_actual)
-            if self._modo_simplificado:
-                self._begin_avanzar_paralelo()
-                self._set_state('AVANZAR_PARALELO')
-            else:
-                self._alinear_start = None
-                self._set_state('ALINEAR')
+            # ALINEAR corre siempre, incluso en modo_simplificado: GIRAR
+            # por si solo solo cierra el lazo contra el yaw de odometria
+            # (un angulo objetivo fijo, con la deriva propia del
+            # odometro pese al factor de correccion). ALINEAR corrige
+            # ese resultado con el LiDAR real (right_front/right_rear)
+            # despues del giro -- es el feedback real, no un angulo fijo.
+            self._alinear_start = None
+            self._set_state('ALINEAR')
             return
 
         # Chasis Ackermann: no puede rotar en el sitio. Se aproxima el
