@@ -247,7 +247,7 @@ def main():
 
             if paso % args.dibujar_cada == 0:
                 _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado,
-                         ultima_decision_info, num_celdas, num_giros,
+                         ultima_decision_info, decision_actual, num_celdas, num_giros,
                          trayectoria_x, trayectoria_y, args)
                 plt.pause(0.001)
     except KeyboardInterrupt:
@@ -284,8 +284,23 @@ def _dibujar_grid(ax):
                      ha='center', va='center', fontsize=8, color='lightgray', zorder=0)
 
 
+def _descripcion_accion(estado, decision_actual, args):
+    """Frase legible de 'que esta haciendo el robot ahora mismo', para
+    mostrar en el visualizador ademas del nombre tecnico del estado."""
+    if estado == 'AVANZAR_PARALELO':
+        return f'Avanzando — siguiendo la pared derecha a {args.distancia_objetivo*100:.0f}cm'
+    if estado == 'PAUSA_GIRO':
+        return f'Detenido {args.pausa_antes_girar:.0f}s antes de girar'
+    if estado == 'GIRAR':
+        direccion = decision_actual or '?'
+        return f'Girando {direccion} (objetivo {args.angulo_giro:.0f}°, arco Ackermann)'
+    if estado == 'ALINEAR':
+        return 'Alineando con la pared real (corrigiendo con el LiDAR, S1/S2)'
+    return estado
+
+
 def _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado, decision_info,
-             num_celdas, num_giros, tx, ty, args):
+             decision_actual, num_celdas, num_giros, tx, ty, args):
     ax.clear()
 
     _dibujar_grid(ax)
@@ -312,8 +327,13 @@ def _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado, decision_info,
         'AVANZAR_PARALELO': 'black', 'PAUSA_GIRO': 'firebrick',
         'GIRAR': 'purple', 'ALINEAR': 'teal',
     }.get(estado, 'black')
+    accion = _descripcion_accion(estado, decision_actual, args)
     info = f'estado={estado}  celdas={num_celdas}  giros={num_giros}\n{decision_info}'
     ax.set_title(info, fontsize=9, color=color_estado)
+    ax.text(0.01, 0.99, accion, transform=ax.transAxes, ha='left', va='top',
+            fontsize=12, fontweight='bold', color=color_estado,
+            bbox=dict(boxstyle='round,pad=0.4', facecolor='white', edgecolor=color_estado, alpha=0.9),
+            zorder=10)
 
     ax.set_xlim(-0.3, 3.9)
     ax.set_ylim(2.7, -0.3)  # invertido: Y crece hacia abajo, igual que el plano
