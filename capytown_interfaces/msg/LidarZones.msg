@@ -29,3 +29,9 @@ bool front_narrow_valid
 float32 right_line_angle_rad     # angulo de la pared respecto al frente del robot
 float32 right_line_distance_m    # distancia perpendicular del robot a la pared
 bool right_line_valid
+
+# Mismo ajuste de recta, para el lado IZQUIERDO (logica_dos_reglas
+# puede seguir la pared derecha o la izquierda, ver esa config).
+float32 left_line_angle_rad
+float32 left_line_distance_m
+bool left_line_valid

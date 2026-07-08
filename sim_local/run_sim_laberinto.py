@@ -302,20 +302,26 @@ def _correr_logica_actual(args):
 def _correr_logica_simple(args):
     """TRES reglas, sin grilla de decision ni PAUSA_GIRO/ALINEAR, pero
     con AJUSTE DE LINEA (no solo distancia puntual) para el lado
-    derecho -- evita confundir una pared vista en diagonal con un
+    IZQUIERDO -- evita confundir una pared vista en diagonal con un
     obstaculo nuevo, porque el ajuste da angulo Y distancia en vez de
     un numero suelto:
 
     1. Avanzar recto mientras el frente este libre.
-    2. Si hay ajuste de linea valido de la pared derecha, corregir con
-       Kp (angulo + distancia hacia --distancia-objetivo) para
-       mantenerse paralelo y cerca. Si NO hay ajuste valido (se perdio
-       la pared), avanzar recto sin corregir nada -- sin heading-hold
-       ni ningun otro respaldo, simple a proposito.
+    2. Si hay ajuste de linea valido de la pared IZQUIERDA, corregir
+       con Kp (angulo + distancia hacia --distancia-objetivo) para
+       mantenerse paralelo y cerca. El termino de ANGULO tiene el
+       mismo signo que para la pared derecha (la relacion angulo =
+       -theta_mundo es geometrica, no depende de que lado sea), pero
+       el termino de DISTANCIA va invertido (distancia_actual -
+       objetivo, no objetivo - distancia_actual): si el robot esta
+       demasiado lejos de la pared izquierda hay que girar HACIA ella
+       (izquierda), lo opuesto de la pared derecha. Si NO hay ajuste
+       valido (se perdio la pared), avanzar recto sin corregir nada.
     3. Si detecta un obstaculo al frente (cono angosto, ver
        VENT_FRONT_ESTRECHO) sostenido durante --frente-confirmaciones
-       ciclos seguidos (no un solo vistazo), girar a la IZQUIERDA
-       (--angulo-giro) y retomar.
+       ciclos seguidos (no un solo vistazo), girar a la DERECHA
+       (--angulo-giro) -- se aleja de la pared izquierda que sigue, no
+       gira hacia ella -- y retomar.
 
     Arranca paralelo a la pared inferior (fila 4, mirando al ESTE/
     derecha) en vez de mirando al norte -- coincide con la entrada
@@ -367,27 +373,27 @@ def _correr_logica_simple(args):
                     num_giros += 1
                     contador_frente = 0
                     giro_objetivo = calcular_objetivo_giro(
-                        pose.theta, 'IZQUIERDA', angulo_deg=args.angulo_giro
+                        pose.theta, 'DERECHA', angulo_deg=args.angulo_giro
                     )
-                    ultima_decision_info = f'obstaculo al frente ({front_d*100:.0f}cm) -> IZQUIERDA'
+                    ultima_decision_info = f'obstaculo al frente ({front_d*100:.0f}cm) -> DERECHA'
                     print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
                           f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
-                    estado = 'GIRAR_IZQUIERDA'
+                    estado = 'GIRAR'
                     ajuste = None
                 else:
-                    ajuste = ajustar_linea_pared(angulos, rangos, *VENT_LINEA,
+                    ajuste = ajustar_linea_pared(angulos, rangos, *VENT_LEFT,
                                                   range_min=RANGE_MIN, range_max=RANGE_MAX, min_puntos=6)
                     if ajuste is None:
                         # Sin pared de referencia: avanzar recto, sin corregir nada.
                         w = 0.0
                     else:
-                        error_distancia = args.distancia_objetivo - ajuste.distancia_m
+                        error_distancia = ajuste.distancia_m - args.distancia_objetivo  # invertido (pared izq)
                         correccion = (args.ganancia_angulo * ajuste.angulo_rad
                                       + args.ganancia_distancia * error_distancia)
                         w = max(-args.angular_max, min(args.angular_max, correccion))
                     pose = integrar(pose, args.velocidad, w, DT)
 
-            elif estado == 'GIRAR_IZQUIERDA':
+            elif estado == 'GIRAR':
                 v, w, terminado = calcular_comando_giro(pose.theta, giro_objetivo, params_giro)
                 pose = integrar(pose, v, w, DT)
                 ajuste = None

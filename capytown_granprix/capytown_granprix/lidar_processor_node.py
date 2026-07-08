@@ -53,6 +53,7 @@ class LidarProcessorNode(Node):
         self.declare_parameter('right_rear_window_deg', [-135.0, -105.0])
         self.declare_parameter('left_window_deg', [70.0, 110.0])
         self.declare_parameter('right_side_window_deg', [-110.0, -70.0])
+        self.declare_parameter('left_side_window_deg', [70.0, 110.0])
         self.declare_parameter('min_puntos_linea', 6)
         self.declare_parameter('outlier_max_iter', 3)
         self.declare_parameter('outlier_residuo_m', 0.03)
@@ -72,6 +73,7 @@ class LidarProcessorNode(Node):
             'front_narrow': ZoneWindow(*self.get_parameter('front_narrow_window_deg').value),
         }
         self._right_side_window = ZoneWindow(*self.get_parameter('right_side_window_deg').value)
+        self._left_side_window = ZoneWindow(*self.get_parameter('left_side_window_deg').value)
         self._min_puntos_linea = int(self.get_parameter('min_puntos_linea').value)
         self._outlier_max_iter = int(self.get_parameter('outlier_max_iter').value)
         self._outlier_residuo_m = float(self.get_parameter('outlier_residuo_m').value)
@@ -114,6 +116,15 @@ class LidarProcessorNode(Node):
         out.right_line_angle_rad = angulo
         out.right_line_distance_m = distancia_linea
         out.right_line_valid = valido_linea
+
+        angulo_izq, distancia_linea_izq, valido_linea_izq = fit_wall_line(
+            ranges, robot_angles, msg.range_min, range_max_use,
+            self._left_side_window, self._min_puntos_linea,
+            self._outlier_max_iter, self._outlier_residuo_m,
+        )
+        out.left_line_angle_rad = angulo_izq
+        out.left_line_distance_m = distancia_linea_izq
+        out.left_line_valid = valido_linea_izq
 
         self._pub.publish(out)
 
