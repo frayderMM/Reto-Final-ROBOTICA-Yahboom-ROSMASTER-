@@ -369,4 +369,12 @@ def pasillo_obstaculo_perpendicular(
     # si no, el robot nunca lo encuentra en su camino real.
     p.agregar(x_obs, y_der_0, x_obs, y_der_0 + largo_obstaculo_m)
 
+    # Cierre lejano al final del tramo: sin esto, "frente"/"izquierda"
+    # cerca del final del pasillo no encuentran ninguna pared dentro
+    # del alcance del LiDAR y la lectura vuelve "invalida" (igual que
+    # "sin pared" en DECIDIR) -- provoca un ATRAS falso justo despues
+    # de esquivar el obstaculo con exito. Mismo motivo que el cierre
+    # lejano de pasillo_esquina_concava_derecha().
+    p.agregar(x_fin, y_der_0, x_fin, y_der_0 + max(largo_obstaculo_m, ancho_m))
+
     return p

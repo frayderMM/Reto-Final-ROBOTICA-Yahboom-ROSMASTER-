@@ -85,6 +85,15 @@ def parse_args():
     p.add_argument('--ventana-decision', type=float, nargs=2, default=[-100.0, -80.0])
     p.add_argument('--largo-robot', type=float, default=0.24)
     p.add_argument('--ancho-robot', type=float, default=0.16)
+    p.add_argument('--angulo-esquive', type=float, default=30.0,
+                    help='giro chico (grados) para esquivar un obstaculo perpendicular en vez '
+                         'de un giro de grilla completo (--angulo-giro)')
+    p.add_argument('--max-intentos-esquive', type=int, default=8,
+                    help='cuantos giros chicos intenta antes de rendirse y usar la decision de '
+                         'grilla normal (derecha/frente/izquierda/atras)')
+    p.add_argument('--avance-min-reacquire', type=float, default=0.20,
+                    help='cuanto tiene que avanzar sin volver a bloquearse para considerar que '
+                         'reencontro la pared y resetear el contador de intentos')
     return p.parse_args()
 
 
@@ -137,6 +146,9 @@ def main():
     ultima_decision_info = ''
     pausa_giro_inicio = 0
     alinear_inicio = 0
+    esquive_objetivo = None
+    intentos_esquive = 0
+    punto_ultimo_esquive = (pose.x, pose.y)
 
     trayectoria_x, trayectoria_y = [pose.x], [pose.y]
     rng = np.random.default_rng(0)
@@ -165,7 +177,31 @@ def main():
                 front_d, front_v = zona_min(angulos, rangos, VENT_FRONT)
                 frente_cerca = front_v and front_d < args.umbral_frente_pared
 
-                if avance >= (args.celda_decision - args.margen_avance) or frente_cerca:
+                avance_desde_esquive = math.hypot(pose.x - punto_ultimo_esquive[0],
+                                                   pose.y - punto_ultimo_esquive[1])
+                if not frente_cerca and avance_desde_esquive > args.avance_min_reacquire:
+                    intentos_esquive = 0  # reencontro la pared, tramo limpio: resetea
+
+                if frente_cerca and intentos_esquive < args.max_intentos_esquive:
+                    # Giro CHICO hacia la izquierda (aleja del obstaculo que
+                    # sale de la pared derecha) en vez de un giro de grilla
+                    # completo -- reintenta el seguimiento de pared despues.
+                    # Validado en sim_local/prototipo_esquive2.py: alternar
+                    # de lado en cada intento zigzaguea y falla en varios
+                    # anchos de pasillo; SIEMPRE izquierda es robusto.
+                    intentos_esquive += 1
+                    esquive_objetivo = pose.theta + math.radians(args.angulo_esquive)
+                    punto_ultimo_esquive = (pose.x, pose.y)
+                    # Reinicia el reloj del chequeo periodico de celda: si
+                    # no, el "avance" acumulado desde ANTES de empezar a
+                    # esquivar puede disparar una decision de grilla a
+                    # mitad de la maniobra de esquive e interrumpirla.
+                    cell_start = (pose.x, pose.y)
+                    print(f'[paso {paso}] ESQUIVE #{intentos_esquive} frente={front_d*100:.0f}cm '
+                          f'x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm')
+                    estado = 'ESQUIVAR_GIRO'
+
+                elif avance >= (args.celda_decision - args.margen_avance) or frente_cerca:
                     right_d, right_v = zona_min(angulos, rangos, tuple(args.ventana_decision))
                     left_d, left_v = zona_min(angulos, rangos, VENT_LEFT)
                     derecha_libre = right_v and right_d > args.umbral_lado_libre
@@ -218,12 +254,29 @@ def main():
                     ultima_distancia_valida = None
                     estado = 'AVANZAR_PARALELO'
 
+            elif estado == 'ESQUIVAR_GIRO':
+                # Mismo arco que GIRAR (parametros de giro), pero un
+                # angulo mucho mas chico (--angulo-esquive) y sin PAUSA
+                # ni ALINEAR -- es un correctivo rapido, no un giro de
+                # cruce real.
+                v, w, terminado = calcular_comando_giro(pose.theta, esquive_objetivo, params_giro)
+                pose = integrar(pose, v, w, DT)
+                ajuste = None
+                if terminado:
+                    heading_objetivo = None
+                    ultima_distancia_valida = None
+                    estado = 'AVANZAR_PARALELO'
+
             trayectoria_x.append(pose.x)
             trayectoria_y.append(pose.y)
             paso += 1
 
-            if pose.x > args.largo_pared - 0.1:
-                print(f'\n*** FIN DEL PASILLO en paso {paso} ***')
+            # "Exito" = bien pasado el obstaculo (no hace falta llegar
+            # hasta el cierre lejano del pasillo de prueba, que el
+            # robot trata como otra pared mas, no como el final real).
+            x_obs = args.largo_pared / 2.0
+            if pose.x > x_obs + 0.5:
+                print(f'\n*** OBSTACULO SUPERADO en paso {paso} ***')
                 break
 
             if paso % 2 == 0:
@@ -272,7 +325,7 @@ def _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado, decision_info, 
 
     color_estado = {
         'AVANZAR_PARALELO': 'black', 'PAUSA_GIRO': 'firebrick',
-        'GIRAR': 'purple', 'ALINEAR': 'teal',
+        'GIRAR': 'purple', 'ALINEAR': 'teal', 'ESQUIVAR_GIRO': 'darkorange',
     }.get(estado, 'black')
     ax.set_title(f'estado={estado}\n{decision_info}', fontsize=9, color=color_estado)
 
