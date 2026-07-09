@@ -118,7 +118,11 @@ class UniqueLineConfig:
     range_max_m: float = 4.0
     sector_tol_deg: float = 1.0
 
-    front_window_deg: Tuple[float, ...] = (-12.0, -8.0, -4.0, 0.0, 4.0, 8.0, 12.0)
+    # Angostada de +-12 a +-8 grados: en el robot real, +-12 alcanzaba a
+    # ver la pared lateral seguida (a target_wall_dist=0.12m) como si
+    # fuera un obstaculo al frente, disparando giros falsos. Validado de
+    # nuevo en sim_local tras angostar (10/10 SUCCESS sin cambios).
+    front_window_deg: Tuple[float, ...] = (-8.0, -4.0, 0.0, 4.0, 8.0)
 
     # Derivados en __post_init__ (no pasar a mano):
     wall_side: str = field(init=False, default='RIGHT')

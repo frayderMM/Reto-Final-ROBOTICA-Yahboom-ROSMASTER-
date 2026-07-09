@@ -125,7 +125,24 @@ completa comentada. Los mas relevantes para calibrar en pista real:
   `granprix_params.yaml` (ver `logica_pared_derecha_robot.md` seccion
   10 y el historial de calibracion en `granprix_params.yaml`).
 
-## 6. Notas de diseno
+## 6. Diagnostico en pista real
+
+Si el robot confunde la pared lateral con un obstaculo al frente (gira
+sin que haya nada realmente ahi), o si algo no calibra bien en
+general: usar [`UNIQUE_LINE_DEBUG.md`](UNIQUE_LINE_DEBUG.md) -- explica
+como capturar el log del nodo (ahora imprime el estado, `front`,
+`wall_raw`, `wall_f` filtrado y `side_min` en cada cambio de estado, y
+cada `diag_log_period_s` segundos aunque no cambie de estado) y
+pegarlo ahi para diagnosticar.
+
+Ya se ajusto `front_window_deg` de `[-12,-8,-4,0,4,8,12]` a
+`[-8,-4,0,4,8]` (ver `unique_line_control.py`/`unique_line_node.py`):
+la ventana ancha alcanzaba a ver la propia pared lateral seguida (a
+solo `target_wall_dist=0.12m`) como si fuera un obstaculo al frente,
+disparando giros `INTERIOR_TURN_90` falsos. Revalidado en simulador:
+sigue en 10/10 SUCCESS sin cambios en el resto de resultados.
+
+## 7. Notas de diseno
 
 - Sin flags booleanos de "lectura valida": `front_dist`/`wall_dist`/
   `side_min` son simplemente distancias: si un sector no tiene ningun

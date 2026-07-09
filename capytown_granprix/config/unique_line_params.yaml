@@ -67,3 +67,17 @@ unique_line:
     range_min_m: 0.03
     range_max_m: 4.0
     sector_tol_deg: 1.0
+
+    # Angulos discretos (grados) del cono frontal. Angostado de
+    # +-12 a +-8: en pista real, +-12 alcanzaba a ver la pared lateral
+    # seguida (a target_wall_dist=0.12m) como si fuera un obstaculo al
+    # frente, disparando giros falsos (INTERIOR_TURN_90 sin que hubiera
+    # nada realmente al frente). Si vuelve a pasar, angostar mas aqui
+    # (o revisar primero la calibracion de front_offset_deg/
+    # invert_left_right con lidar_viz.py -- ver UNIQUE_LINE_DEBUG.md).
+    front_window_deg: [-8.0, -4.0, 0.0, 4.0, 8.0]
+
+    # Diagnostico: log en cada cambio de estado (siempre) + log
+    # periodico cada tantos segundos con front/wall_dist_f/side_min
+    # aunque no cambie de estado. 0.0 = solo log de transiciones.
+    diag_log_period_s: 1.0

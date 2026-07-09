@@ -103,7 +103,10 @@ class UniqueLineConfig:
     range_max_m: float = 4.0
     sector_tol_deg: float = 1.0
 
-    front_window_deg: Tuple[float, ...] = (-12.0, -8.0, -4.0, 0.0, 4.0, 8.0, 12.0)
+    # Angostada de +-12 a +-8 grados: en el robot real, +-12 alcanzaba a
+    # ver la pared lateral seguida (a target_wall_dist=0.12m) como si
+    # fuera un obstaculo al frente, disparando giros falsos.
+    front_window_deg: Tuple[float, ...] = (-8.0, -4.0, 0.0, 4.0, 8.0)
 
     wall_side: str = field(init=False, default='RIGHT')
     wall_control_sign: float = field(init=False, default=1.0)
@@ -448,6 +451,9 @@ class UniqueLineNode(Node):
         self._yaw = 0.0
 
         self._fsm = None  # se crea al recibir la primera odometria (heading inicial)
+        self._last_logged_state = None
+        self._diag_log_period_s = float(self.get_parameter('diag_log_period_s').value)
+        self._last_diag_log = self.get_clock().now()
 
         self._cmd_pub = self.create_publisher(Twist, self._cmd_vel_topic, 10)
         self.create_subscription(
@@ -512,6 +518,19 @@ class UniqueLineNode(Node):
             'range_min_m': 0.03,
             'range_max_m': 4.0,
             'sector_tol_deg': 1.0,
+
+            # Angulos discretos (grados) del cono frontal -- angostar
+            # esto si la pared lateral seguida se confunde con un
+            # obstaculo al frente (ver README_unique_line.md).
+            'front_window_deg': [-8.0, -4.0, 0.0, 4.0, 8.0],
+
+            # Diagnostico: log periodico (segundos) con estado y
+            # distancias (front/wall_dist_f/side_min) ademas del log de
+            # cada cambio de estado (ese siempre se imprime). 0 = solo
+            # log de transiciones, sin el periodico. Util para pegar la
+            # salida de terminal en UNIQUE_LINE_DEBUG.md al diagnosticar
+            # un problema en pista (ver ese archivo).
+            'diag_log_period_s': 1.0,
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
@@ -550,6 +569,7 @@ class UniqueLineNode(Node):
             range_min_m=float(g('range_min_m')),
             range_max_m=float(g('range_max_m')),
             sector_tol_deg=float(g('sector_tol_deg')),
+            front_window_deg=tuple(float(a) for a in g('front_window_deg')),
         )
 
     # ------------------------------------------------------------
@@ -591,10 +611,45 @@ class UniqueLineNode(Node):
             self._odom_x, self._odom_y, self._yaw, front_dist, wall_dist_raw, side_min, dt
         )
 
+        self._log_diagnostico(front_dist, wall_dist_raw, v, w)
+
         cmd = Twist()
         cmd.linear.x = v
         cmd.angular.z = w
         self._cmd_pub.publish(cmd)
+
+    def _log_diagnostico(self, front_dist: float, wall_dist_raw: float, v: float, w: float) -> None:
+        """Log de diagnostico: SIEMPRE en cada cambio de estado, y ademas
+        cada ``diag_log_period_s`` segundos aunque no cambie de estado
+        (para ver si una lectura oscila o queda mal calibrada sin llegar
+        a disparar una transicion). Pensado para pegar la salida de
+        terminal en UNIQUE_LINE_DEBUG.md al reportar un problema."""
+        fsm = self._fsm
+        state = fsm.state
+
+        if state != self._last_logged_state:
+            self.get_logger().info(
+                f'ESTADO: {self._last_logged_state} -> {state} | '
+                f'front={front_dist:.3f}m wall_raw={wall_dist_raw:.3f}m '
+                f'wall_f={fsm.wall_dist_f:.3f}m side_min={fsm._side_min:.3f}m '
+                f'yaw={math.degrees(self._yaw):.1f}deg '
+                f'target_heading={math.degrees(fsm.target_heading):.1f}deg '
+                f'v={v:.3f} w={w:.3f}'
+            )
+            self._last_logged_state = state
+            self._last_diag_log = self.get_clock().now()
+            return
+
+        if self._diag_log_period_s <= 0.0:
+            return
+        elapsed = (self.get_clock().now() - self._last_diag_log).nanoseconds / 1e9
+        if elapsed >= self._diag_log_period_s:
+            self.get_logger().info(
+                f'diag: estado={state} front={front_dist:.3f}m wall_raw={wall_dist_raw:.3f}m '
+                f'wall_f={fsm.wall_dist_f:.3f}m side_min={fsm._side_min:.3f}m '
+                f'yaw={math.degrees(self._yaw):.1f}deg v={v:.3f} w={w:.3f}'
+            )
+            self._last_diag_log = self.get_clock().now()
 
 
 def main(args=None):
