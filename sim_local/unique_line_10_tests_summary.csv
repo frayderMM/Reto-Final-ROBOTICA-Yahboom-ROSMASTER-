@@ -1,0 +1,11 @@
+prueba,distancia_inicial_m,ruido,resultado,razon,estado_final,angulo_final_deg,x_final_m,y_final_m,min_wall_dist_m,colision,pasos,tiempo_s
+1,0.08,False,SUCCESS,meta alcanzada tras el giro final,FOLLOW_WALL,87.79,7.45,0.454,0.08,False,2981,149.05
+2,0.1,False,SUCCESS,meta alcanzada tras el giro final,FOLLOW_WALL,87.78,7.45,0.457,0.1,False,2943,147.15
+3,0.12,False,SUCCESS,meta alcanzada tras el giro final,FOLLOW_WALL,87.78,7.45,0.457,0.1137,False,2950,147.5
+4,0.14,False,SUCCESS,meta alcanzada tras el giro final,FOLLOW_WALL,87.78,7.45,0.457,0.1137,False,2955,147.75
+5,0.16,False,SUCCESS,meta alcanzada tras el giro final,FOLLOW_WALL,87.75,7.449,0.453,0.117,False,2958,147.9
+6,0.18,False,SUCCESS,meta alcanzada tras el giro final,FOLLOW_WALL,87.77,7.449,0.453,0.1172,False,2957,147.85
+7,0.2,True,SUCCESS,meta alcanzada tras el giro final,FOLLOW_WALL,87.79,7.45,0.456,0.0976,False,2957,147.85
+8,0.24,True,SUCCESS,meta alcanzada tras el giro final,FOLLOW_WALL,87.72,7.449,0.452,0.0881,False,2946,147.3
+9,0.28,True,SUCCESS,meta alcanzada tras el giro final,FOLLOW_WALL,87.76,7.448,0.456,0.0994,False,3031,151.55
+10,0.32,True,SUCCESS,meta alcanzada tras el giro final,FOLLOW_WALL,87.8,7.449,0.453,0.0952,False,3021,151.05

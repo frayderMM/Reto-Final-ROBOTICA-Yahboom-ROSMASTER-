@@ -1,0 +1,65 @@
+# Parametros de la logica unique_line (seguimiento de UNA sola pared
+# lateral con LiDAR, chasis tipo Ackermann). Ver README_unique_line.md
+# y sim_local/unique_line_report.md (10/10 SUCCESS con estos mismos
+# valores, angulo final ~88 grados, sin colisiones).
+#
+# Editar SIEMPRE en el PC, luego commit + push + pull en el robot (ver
+# FLUJO_DE_TRABAJO.md).
+
+unique_line:
+  ros__parameters:
+    scan_topic: /scan
+    odom_topic: /odom_raw
+    cmd_vel_topic: /cmd_vel
+    control_rate_hz: 20.0
+
+    # Calibracion de montaje del LiDAR -- mismo robot fisico que el
+    # resto del paquete, mismos valores ya validados con lidar_viz.py
+    # (ver granprix_params.yaml, lidar_processor).
+    front_offset_deg: 180.0
+    invert_left_right: false
+
+    # --- Lado a seguir (mutuamente excluyentes, ver unique_line_node.py) ---
+    follow_right: true
+    follow_left: false
+
+    # --- Distancias clave (metros) ---
+    target_wall_dist: 0.12
+    emergency_stop_dist: 0.10
+    front_blocked_dist: 0.36
+    front_clear_dist: 0.44
+    lost_wall_dist: 0.34
+    reacquire_wall_dist: 0.28
+    collision_radius: 0.075
+    safety_side_dist: 0.092
+
+    # --- Ganancias de control ---
+    Kp_wall: 1.00
+    Kp_heading: 0.98
+    deadband_dist: 0.024
+    filter_alpha: 0.24
+    w_limit: 0.6
+
+    # --- Velocidades (m/s, rad/s) ---
+    v_nom: 0.145
+    v_align: 0.070
+    v_corner: 0.050
+    w_corner: 0.46
+    v_clear: 0.075
+    exterior_clear_dist: 0.18
+
+    # --- Confirmaciones (ciclos de control seguidos) ---
+    lost_required: 4
+    clear_required: 4
+    stable_required: 6
+    blocked_required: 2
+
+    # --- Tolerancias de alineacion ---
+    align_tolerance_deg: 7.0
+    stable_heading_tolerance_deg: 10.0
+    stable_dist_tolerance_m: 0.04
+
+    # --- LiDAR: rango util y tolerancia angular de muestreo ---
+    range_min_m: 0.03
+    range_max_m: 4.0
+    sector_tol_deg: 1.0

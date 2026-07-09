@@ -40,6 +40,8 @@ setup(
             'capytown_granprix.stop_sign_detector_node:main',
             'metrics_logger_node = '
             'capytown_granprix.metrics_logger_node:main',
+            'unique_line_node = '
+            'capytown_granprix.unique_line_node:main',
         ],
     },
 )
