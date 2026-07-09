@@ -90,6 +90,7 @@ class StateMachineNode(Node):
         self._esperando_obstaculo = False
         self._espera_obstaculo_inicio = None
         self._contador_frente_dos_reglas = 0
+        self._contador_linea_perdida_dos_reglas = 0
         self._yaw_inicio_giro = 0.0
 
         self._STATE_HANDLERS = {
@@ -174,6 +175,11 @@ class StateMachineNode(Node):
             # ciclo (100% ruido/transitorio) no alcanza para disparar un
             # giro, tiene que sostenerse.
             'frente_confirmaciones_ciclos': 3,
+            # Ciclos seguidos con right_line_valid=false antes de asumir
+            # que la pared realmente se abrio (esquina concava/hueco a
+            # la derecha) y girar -- igual motivo que frente_confirmaciones_
+            # ciclos: un solo ciclo sin lectura valida puede ser ruido.
+            'linea_perdida_confirmaciones_ciclos': 3,
             # Giro DINAMICO de logica_dos_reglas: no gira a angulo_giro_deg
             # fijo -- gira hasta quedar paralelo a la pared siguiente
             # (right_line_angle_rad ~0, con tolerancia_giro_deg), leyendo
@@ -248,7 +254,9 @@ class StateMachineNode(Node):
         self._ganancia_distancia_recta = float(g('ganancia_distancia_recta'))
         self._angular_max_recta = float(g('angular_max_recta_radps'))
         self._frente_confirmaciones_ciclos = int(g('frente_confirmaciones_ciclos'))
+        self._linea_perdida_confirmaciones_ciclos = int(g('linea_perdida_confirmaciones_ciclos'))
         self._contador_frente_dos_reglas = 0
+        self._contador_linea_perdida_dos_reglas = 0
         self._angulo_minimo_giro_rad = math.radians(float(g('angulo_minimo_giro_deg')))
         self._angulo_maximo_giro_rad = math.radians(float(g('angulo_maximo_giro_deg')))
 
@@ -416,24 +424,33 @@ class StateMachineNode(Node):
         self._publish_twist(self._wall_follow_cmd)
 
     def _handle_avanzar_paralelo_dos_reglas(self):
-        """TRES REGLAS (ver logica_dos_reglas arriba), con AJUSTE DE
+        """CUATRO REGLAS (ver logica_dos_reglas arriba), con AJUSTE DE
         LINEA para el lado derecho (no distancia puntual) y
-        confirmacion de varios ciclos para el frente:
+        confirmacion de varios ciclos para el frente y para la pared:
 
         1. Avanzar recto mientras el frente este libre.
         2. Si hay ajuste de linea valido (right_line_*) de la pared
            derecha, corregir con Kp (angulo + distancia hacia
            distancia_objetivo_m) -- distingue una pared vista en
            diagonal (se corrige el angulo) de un obstaculo nuevo (no
-           encaja como continuacion de esa recta). Si NO hay ajuste
-           valido (se perdio la pared), avanzar recto sin corregir
-           nada -- simple a proposito, sin heading-hold ni respaldo.
-        3. Si hay obstaculo al frente (front_narrow, cono angosto)
-           sostenido durante frente_confirmaciones_ciclos seguidos (no
-           un solo vistazo), girar 90 grados a la IZQUIERDA (fijo,
-           ignora derecha/izquierda) y retomar.
+           encaja como continuacion de esa recta).
+        3. Si se PIERDE la pared derecha (right_line_valid=false)
+           sostenido durante linea_perdida_confirmaciones_ciclos
+           seguidos (no un solo vistazo), es que la pared se abrio
+           (esquina concava / hueco a la derecha) -- girar 90 grados
+           DINAMICO a la DERECHA (mismo mecanismo de la regla 4:
+           sigue girando hasta quedar paralelo a la pared siguiente)
+           y retomar. Mientras no se confirme, sigue avanzando recto
+           sin corregir nada (podria ser solo un vistazo de un ciclo).
+        4. Si hay obstaculo al frente (front_narrow, cono angosto)
+           sostenido durante frente_confirmaciones_ciclos seguidos,
+           girar 90 grados DINAMICO a la IZQUIERDA (ignora derecha/
+           izquierda, no un angulo fijo -- sigue girando, leyendo la
+           linea EN VIVO, hasta quedar paralelo a la pared siguiente)
+           y retomar.
 
-        No cuenta celdas ni pasa por ALINEAR -- portado tal cual de
+        No cuenta celdas ni pasa por ALINEAR (el giro dinamico ya lo
+        reemplaza) -- portado tal cual de
         sim_local/run_sim_laberinto.py::_correr_logica_simple.
         """
         z = self._zones
@@ -444,6 +461,7 @@ class StateMachineNode(Node):
 
         if self._contador_frente_dos_reglas >= self._frente_confirmaciones_ciclos:
             self._contador_frente_dos_reglas = 0
+            self._contador_linea_perdida_dos_reglas = 0
             self._decision_actual = 'IZQUIERDA'
             self._yaw_inicio_giro = self._yaw
             self._publish_event(
@@ -454,9 +472,25 @@ class StateMachineNode(Node):
             self._set_state('PAUSA_GIRO')
             return
 
+        linea_perdida_1_ciclo = not z.right_line_valid
+        self._contador_linea_perdida_dos_reglas = (
+            self._contador_linea_perdida_dos_reglas + 1 if linea_perdida_1_ciclo else 0
+        )
+
+        if self._contador_linea_perdida_dos_reglas >= self._linea_perdida_confirmaciones_ciclos:
+            self._contador_linea_perdida_dos_reglas = 0
+            self._decision_actual = 'DERECHA'
+            self._yaw_inicio_giro = self._yaw
+            self._publish_event(EV.GIRO, 'perdio la pared derecha (hueco/esquina) -> DERECHA')
+            self._publish_twist(Twist())
+            self._pausa_giro_start = self.get_clock().now()
+            self._set_state('PAUSA_GIRO')
+            return
+
         cmd = Twist()
         if not z.right_line_valid:
-            # Sin pared de referencia: avanzar recto, sin corregir nada.
+            # Perdida no confirmada todavia (podria ser un solo
+            # vistazo de ruido): avanzar recto, sin corregir nada.
             cmd.linear.x = self._velocidad_recta
             self._publish_twist(cmd)
             return

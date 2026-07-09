@@ -141,12 +141,13 @@ state_machine:
     # de pared con wall_follow_cmd): avanzar recto mientras el frente
     # este libre, corregir con el AJUSTE DE LINEA (angulo + distancia,
     # no distancia puntual -- evita confundir una pared vista en
-    # diagonal con un obstaculo real) hacia distancia_objetivo_m; si NO
-    # hay ajuste valido, avanzar recto sin corregir nada (sin heading-
-    # hold ni respaldo, simple a proposito); si hay obstaculo al frente
-    # sostenido frente_confirmaciones_ciclos seguidos, gira a la
-    # IZQUIERDA DE FORMA DINAMICA -- no un angulo fijo, sigue girando
-    # (leyendo la linea EN VIVO) hasta quedar paralelo a la pared
+    # diagonal con un obstaculo real) hacia distancia_objetivo_m; si se
+    # PIERDE la pared derecha sostenido linea_perdida_confirmaciones_
+    # ciclos seguidos (esquina concava/hueco a la derecha), gira a la
+    # DERECHA; si hay obstaculo al frente sostenido
+    # frente_confirmaciones_ciclos seguidos, gira a la IZQUIERDA.
+    # Ambos giros son DINAMICOS -- no un angulo fijo, siguen girando
+    # (leyendo la linea EN VIVO) hasta quedar paralelos a la pared
     # siguiente (ver angulo_minimo/maximo_giro_deg abajo), sin contar
     # celdas ni pasar por ALINEAR (el giro dinamico ya lo reemplaza).
     # Ver sim_local/run_sim_laberinto.py::_correr_logica_simple (el
@@ -160,6 +161,7 @@ state_machine:
     ganancia_distancia_recta: 2.0
     angular_max_recta_radps: 0.6
     frente_confirmaciones_ciclos: 3
+    linea_perdida_confirmaciones_ciclos: 3
     # Giro dinamico: resguardo minimo (no confundir con la pared vieja)
     # y tope maximo de seguridad (si nunca encuentra pared paralela).
     angulo_minimo_giro_deg: 45.0

@@ -111,6 +111,10 @@ def parse_args():
                     help='solo --logica simple: ciclos seguidos con el frente bloqueado antes '
                          'de girar (evita que un vistazo diagonal de un solo ciclo dispare un '
                          'giro innecesario)')
+    p.add_argument('--linea-perdida-confirmaciones', type=int, default=3,
+                    help='solo --logica simple: ciclos seguidos SIN ajuste de linea valido '
+                         'antes de asumir que la pared se abrio (esquina concava/hueco a la '
+                         'derecha) y girar a la derecha')
     p.add_argument('--angulo-minimo-giro', type=float, default=45.0,
                     help='giro DINAMICO: grados minimos (por odometria, solo de resguardo) '
                          'antes de poder detectar "ya quedo paralelo" y parar')
@@ -308,8 +312,8 @@ def _correr_logica_actual(args):
 
 
 def _correr_logica_simple(args):
-    """TRES reglas, sin grilla de decision ni PAUSA_GIRO/ALINEAR, pero
-    con AJUSTE DE LINEA (no solo distancia puntual) para el lado
+    """CUATRO reglas, sin grilla de decision ni PAUSA_GIRO/ALINEAR,
+    pero con AJUSTE DE LINEA (no solo distancia puntual) para el lado
     derecho -- evita confundir una pared vista en diagonal con un
     obstaculo nuevo, porque el ajuste da angulo Y distancia en vez de
     un numero suelto:
@@ -317,17 +321,20 @@ def _correr_logica_simple(args):
     1. Avanzar recto mientras el frente este libre.
     2. Si hay ajuste de linea valido de la pared derecha, corregir con
        Kp (angulo + distancia hacia --distancia-objetivo) para
-       mantenerse paralelo y cerca. Si NO hay ajuste valido (se perdio
-       la pared), avanzar recto sin corregir nada -- sin heading-hold
-       ni ningun otro respaldo, simple a proposito.
-    3. Si detecta un obstaculo al frente (cono angosto, ver
+       mantenerse paralelo y cerca.
+    3. Si se PIERDE la pared derecha (sin ajuste valido) sostenido
+       durante --linea-perdida-confirmaciones ciclos seguidos (no un
+       solo vistazo), es que la pared se abrio (esquina concava/hueco
+       a la derecha) -- girar a la DERECHA. Mientras no se confirme,
+       sigue avanzando recto sin corregir nada.
+    4. Si detecta un obstaculo al frente (cono angosto, ver
        VENT_FRONT_ESTRECHO) sostenido durante --frente-confirmaciones
-       ciclos seguidos (no un solo vistazo), girar a la IZQUIERDA --
-       DINAMICO, no un angulo fijo: sigue girando (con lectura de
-       linea EN VIVO durante el giro) hasta quedar paralelo a la
-       pared siguiente (angulo de linea ~0), con --angulo-minimo-giro
-       de resguardo y --angulo-maximo-giro de tope de seguridad -- y
-       retomar.
+       ciclos seguidos, girar a la IZQUIERDA.
+
+    Ambos giros son DINAMICOS, no un angulo fijo: siguen girando (con
+    lectura de linea EN VIVO durante el giro) hasta quedar paralelos a
+    la pared siguiente (angulo de linea ~0), con --angulo-minimo-giro
+    de resguardo y --angulo-maximo-giro de tope de seguridad.
 
     Arranca paralelo a la pared inferior (fila 4, mirando al ESTE/
     derecha) en vez de mirando al norte -- coincide con la entrada
@@ -351,9 +358,11 @@ def _correr_logica_simple(args):
     pose = Pose(x=inicio_x, y=inicio_y, theta=theta_inicio)
     estado = 'AVANZAR'
     yaw_inicio_giro = None
+    direccion_giro = 'IZQUIERDA'
     ultima_decision_info = ''
     num_giros = 0
     contador_frente = 0
+    contador_linea_perdida = 0
 
     trayectoria_x, trayectoria_y = [pose.x], [pose.y]
     rng = np.random.default_rng(0)
@@ -380,6 +389,8 @@ def _correr_logica_simple(args):
                 if frente_bloqueado:
                     num_giros += 1
                     contador_frente = 0
+                    contador_linea_perdida = 0
+                    direccion_giro = 'IZQUIERDA'
                     yaw_inicio_giro = pose.theta
                     ultima_decision_info = f'obstaculo al frente ({front_d*100:.0f}cm) -> IZQUIERDA'
                     print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
@@ -389,15 +400,33 @@ def _correr_logica_simple(args):
                 else:
                     ajuste = ajustar_linea_pared(angulos, rangos, *VENT_LINEA,
                                                   range_min=RANGE_MIN, range_max=RANGE_MAX, min_puntos=6)
-                    if ajuste is None:
-                        # Sin pared de referencia: avanzar recto, sin corregir nada.
+
+                    linea_perdida_1_ciclo = ajuste is None
+                    contador_linea_perdida = (
+                        contador_linea_perdida + 1 if linea_perdida_1_ciclo else 0
+                    )
+                    linea_perdida_confirmada = contador_linea_perdida >= args.linea_perdida_confirmaciones
+
+                    if linea_perdida_confirmada:
+                        num_giros += 1
+                        contador_linea_perdida = 0
+                        direccion_giro = 'DERECHA'
+                        yaw_inicio_giro = pose.theta
+                        ultima_decision_info = 'perdio la pared derecha (hueco/esquina) -> DERECHA'
+                        print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
+                              f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
+                        estado = 'GIRAR_IZQUIERDA'  # mismo estado, sirve para cualquier direccion
+                        ajuste = None
+                    elif ajuste is None:
+                        # Perdida no confirmada todavia: avanzar recto, sin corregir nada.
                         w = 0.0
+                        pose = integrar(pose, args.velocidad, w, DT)
                     else:
                         error_distancia = args.distancia_objetivo - ajuste.distancia_m
                         correccion = (args.ganancia_angulo * ajuste.angulo_rad
                                       + args.ganancia_distancia * error_distancia)
                         w = max(-args.angular_max, min(args.angular_max, correccion))
-                    pose = integrar(pose, args.velocidad, w, DT)
+                        pose = integrar(pose, args.velocidad, w, DT)
 
             elif estado == 'GIRAR_IZQUIERDA':
                 # Lectura de linea EN VIVO durante el giro (no ciego):
@@ -407,12 +436,12 @@ def _correr_logica_simple(args):
                                               range_min=RANGE_MIN, range_max=RANGE_MAX, min_puntos=6)
                 angulo_girado = abs(diferencia_angular(pose.theta, yaw_inicio_giro))
                 v, w, terminado = calcular_comando_giro_dinamico(
-                    'IZQUIERDA', angulo_girado, ajuste, params_giro_dinamico
+                    direccion_giro, angulo_girado, ajuste, params_giro_dinamico
                 )
                 pose = integrar(pose, v, w, DT)
                 if terminado:
-                    print(f'[paso {paso}] GIRO TERMINADO (paralelo) theta={math.degrees(pose.theta):+.1f} '
-                          f'girado={math.degrees(angulo_girado):.0f}°')
+                    print(f'[paso {paso}] GIRO TERMINADO (paralelo) {direccion_giro} '
+                          f'theta={math.degrees(pose.theta):+.1f} girado={math.degrees(angulo_girado):.0f}°')
                     estado = 'AVANZAR'
 
             trayectoria_x.append(pose.x)
