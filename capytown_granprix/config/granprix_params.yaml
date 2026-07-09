@@ -142,20 +142,17 @@ state_machine:
 
     # Logica simplificada de AVANZAR_PARALELO (reemplaza el seguimiento
     # de pared con wall_follow_cmd): avanzar recto mientras el frente
-    # este libre, corregir con el AJUSTE DE LINEA de la pared IZQUIERDA
-    # (angulo + distancia, con el termino de distancia invertido
-    # respecto a la version de pared derecha -- no distancia puntual,
-    # evita confundir una pared vista en diagonal con un obstaculo
-    # real) hacia distancia_objetivo_m; si NO hay ajuste valido,
-    # avanzar recto sin corregir nada (sin heading-hold ni respaldo,
-    # simple a proposito); girar 90 grados fijo a la DERECHA (se aleja
-    # de la pared izquierda que sigue) si hay obstaculo al frente
+    # este libre, corregir con el AJUSTE DE LINEA de la pared derecha
+    # (angulo + distancia, no distancia puntual -- evita confundir una
+    # pared vista en diagonal con un obstaculo real) hacia
+    # distancia_objetivo_m; si NO hay ajuste valido, avanzar recto sin
+    # corregir nada (sin heading-hold ni respaldo, simple a proposito);
+    # girar 90 grados fijo a la IZQUIERDA si hay obstaculo al frente
     # sostenido frente_confirmaciones_ciclos seguidos (sin mirar
     # derecha/izquierda, sin contar celdas, sin ALINEAR). Ver
     # sim_local/run_sim_laberinto.py::_correr_logica_simple (el mismo
-    # comportamiento validado ahi, signo de distancia confirmado sin
-    # divergencia en 1500 pasos). PONER EN FALSE antes de volver a la
-    # logica real de seguimiento de pared / antes de competencia.
+    # comportamiento validado ahi). PONER EN FALSE antes de volver a
+    # la logica real de seguimiento de pared / antes de competencia.
     logica_dos_reglas: true
     velocidad_recta_mps: 0.15
     distancia_objetivo_m: 0.12
