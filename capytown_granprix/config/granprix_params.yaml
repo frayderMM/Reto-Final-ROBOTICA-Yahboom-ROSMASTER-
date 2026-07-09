@@ -143,13 +143,16 @@ state_machine:
     # no distancia puntual -- evita confundir una pared vista en
     # diagonal con un obstaculo real) hacia distancia_objetivo_m; si NO
     # hay ajuste valido, avanzar recto sin corregir nada (sin heading-
-    # hold ni respaldo, simple a proposito); girar 90 grados fijo a la
-    # IZQUIERDA si hay obstaculo al frente sostenido
-    # frente_confirmaciones_ciclos seguidos (sin mirar derecha/
-    # izquierda, sin contar celdas, sin ALINEAR). Ver
-    # sim_local/run_sim_laberinto.py::_correr_logica_simple (el mismo
-    # comportamiento validado ahi). PONER EN FALSE antes de volver a
-    # la logica real de seguimiento de pared / antes de competencia.
+    # hold ni respaldo, simple a proposito); si hay obstaculo al frente
+    # sostenido frente_confirmaciones_ciclos seguidos, gira a la
+    # IZQUIERDA DE FORMA DINAMICA -- no un angulo fijo, sigue girando
+    # (leyendo la linea EN VIVO) hasta quedar paralelo a la pared
+    # siguiente (ver angulo_minimo/maximo_giro_deg abajo), sin contar
+    # celdas ni pasar por ALINEAR (el giro dinamico ya lo reemplaza).
+    # Ver sim_local/run_sim_laberinto.py::_correr_logica_simple (el
+    # mismo comportamiento validado ahi). PONER EN FALSE antes de
+    # volver a la logica real de seguimiento de pared / antes de
+    # competencia.
     logica_dos_reglas: true
     velocidad_recta_mps: 0.15
     distancia_objetivo_m: 0.12
@@ -157,6 +160,10 @@ state_machine:
     ganancia_distancia_recta: 2.0
     angular_max_recta_radps: 0.6
     frente_confirmaciones_ciclos: 3
+    # Giro dinamico: resguardo minimo (no confundir con la pared vieja)
+    # y tope maximo de seguridad (si nunca encuentra pared paralela).
+    angulo_minimo_giro_deg: 45.0
+    angulo_maximo_giro_deg: 150.0
 
     # --- Correccion de escala del odometro (calibrado en pista) ---
     # El ROSMASTER R2 sobreestima distancia y angulo de forma consistente.

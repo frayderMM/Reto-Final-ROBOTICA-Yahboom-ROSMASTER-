@@ -98,3 +98,54 @@ def calcular_comando_giro(
     v = params.velocidad_lineal_mps
     w = params.velocidad_angular_radps if error > 0.0 else -params.velocidad_angular_radps
     return v, w, False
+
+
+@dataclass
+class ParametrosGiroDinamico:
+    """Giro DINAMICO: no gira a un angulo fijo -- gira hasta quedar
+    PARALELO a la pared siguiente (ajuste de linea con angulo ~0), en
+    vez de confiar en un angulo objetivo de odometria. Reemplaza
+    GIRAR+ALINEAR por un solo movimiento continuo.
+
+    ``angulo_minimo_deg``: tiene que rotar al menos esto (medido con
+    odometria, solo como resguardo, no como criterio de parada) antes
+    de poder detectar "paralelo" -- si no, al arrancar el giro todavia
+    puede estar viendo la pared VIEJA (la que seguia antes de
+    encontrar el obstaculo) casi paralela, y pararia de inmediato sin
+    girar nada.
+    ``angulo_maximo_deg``: tope de seguridad -- si nunca encuentra una
+    pared paralela (p.ej. queda mirando a un espacio abierto), no gira
+    para siempre.
+    """
+    velocidad_lineal_mps: float = 0.08
+    velocidad_angular_radps: float = 0.5
+    angulo_minimo_deg: float = 45.0
+    angulo_maximo_deg: float = 150.0
+    tolerancia_paralelo_deg: float = 4.0
+
+
+def calcular_comando_giro_dinamico(
+    direccion: str,
+    angulo_girado_rad: float,
+    ajuste_linea,  # AjusteLinea o None (de wall_follow_control.ajustar_linea_pared)
+    params: ParametrosGiroDinamico,
+) -> Tuple[float, float, bool]:
+    """Retorna (linear_x, angular_z, terminado).
+
+    ``angulo_girado_rad``: cuanto giro ya (valor absoluto, acumulado
+    desde que arranco el giro) -- lo calcula el caller comparando yaw
+    actual contra el yaw de cuando arranco el giro.
+    """
+    angulo_minimo_rad = math.radians(params.angulo_minimo_deg)
+    angulo_maximo_rad = math.radians(params.angulo_maximo_deg)
+    tolerancia_rad = math.radians(params.tolerancia_paralelo_deg)
+
+    if angulo_girado_rad >= angulo_minimo_rad:
+        if ajuste_linea is not None and abs(ajuste_linea.angulo_rad) <= tolerancia_rad:
+            return 0.0, 0.0, True
+
+    if angulo_girado_rad >= angulo_maximo_rad:
+        return 0.0, 0.0, True
+
+    w = params.velocidad_angular_radps if direccion == 'IZQUIERDA' else -params.velocidad_angular_radps
+    return params.velocidad_lineal_mps, w, False

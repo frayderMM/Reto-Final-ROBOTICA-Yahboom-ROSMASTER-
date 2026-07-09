@@ -36,6 +36,7 @@ from wall_follow_control import ParametrosControl, ajustar_linea_pared, calcular
 from turn_control import (
     ParametrosGiro, calcular_comando_giro, calcular_objetivo_giro,
     ParametrosAlineacion, calcular_comando_alinear,
+    ParametrosGiroDinamico, calcular_comando_giro_dinamico, diferencia_angular,
 )
 
 DT = 0.05
@@ -110,6 +111,13 @@ def parse_args():
                     help='solo --logica simple: ciclos seguidos con el frente bloqueado antes '
                          'de girar (evita que un vistazo diagonal de un solo ciclo dispare un '
                          'giro innecesario)')
+    p.add_argument('--angulo-minimo-giro', type=float, default=45.0,
+                    help='giro DINAMICO: grados minimos (por odometria, solo de resguardo) '
+                         'antes de poder detectar "ya quedo paralelo" y parar')
+    p.add_argument('--angulo-maximo-giro', type=float, default=150.0,
+                    help='giro DINAMICO: tope de seguridad si nunca encuentra pared paralela')
+    p.add_argument('--tolerancia-paralelo', type=float, default=4.0,
+                    help='giro DINAMICO: grados de angulo de linea considerados "paralelo"')
     return p.parse_args()
 
 
@@ -314,8 +322,12 @@ def _correr_logica_simple(args):
        ni ningun otro respaldo, simple a proposito.
     3. Si detecta un obstaculo al frente (cono angosto, ver
        VENT_FRONT_ESTRECHO) sostenido durante --frente-confirmaciones
-       ciclos seguidos (no un solo vistazo), girar a la IZQUIERDA
-       (--angulo-giro) y retomar.
+       ciclos seguidos (no un solo vistazo), girar a la IZQUIERDA --
+       DINAMICO, no un angulo fijo: sigue girando (con lectura de
+       linea EN VIVO durante el giro) hasta quedar paralelo a la
+       pared siguiente (angulo de linea ~0), con --angulo-minimo-giro
+       de resguardo y --angulo-maximo-giro de tope de seguridad -- y
+       retomar.
 
     Arranca paralelo a la pared inferior (fila 4, mirando al ESTE/
     derecha) en vez de mirando al norte -- coincide con la entrada
@@ -326,17 +338,19 @@ def _correr_logica_simple(args):
     umbral_meta = 0.25 * args.celda_real
     theta_inicio = 0.0  # mirando al este, paralelo a la pared inferior
 
-    params_giro = ParametrosGiro(
+    params_giro_dinamico = ParametrosGiroDinamico(
         velocidad_lineal_mps=args.v_giro_lineal,
         velocidad_angular_radps=args.v_giro_angular,
-        tolerancia_giro_deg=args.tolerancia_giro_deg,
+        angulo_minimo_deg=args.angulo_minimo_giro,
+        angulo_maximo_deg=args.angulo_maximo_giro,
+        tolerancia_paralelo_deg=args.tolerancia_paralelo,
     )
 
     pasillo = pasillo_laberinto_completo(celda_m=args.celda_real)
 
     pose = Pose(x=inicio_x, y=inicio_y, theta=theta_inicio)
     estado = 'AVANZAR'
-    giro_objetivo = None
+    yaw_inicio_giro = None
     ultima_decision_info = ''
     num_giros = 0
     contador_frente = 0
@@ -366,9 +380,7 @@ def _correr_logica_simple(args):
                 if frente_bloqueado:
                     num_giros += 1
                     contador_frente = 0
-                    giro_objetivo = calcular_objetivo_giro(
-                        pose.theta, 'IZQUIERDA', angulo_deg=args.angulo_giro
-                    )
+                    yaw_inicio_giro = pose.theta
                     ultima_decision_info = f'obstaculo al frente ({front_d*100:.0f}cm) -> IZQUIERDA'
                     print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
                           f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
@@ -388,10 +400,19 @@ def _correr_logica_simple(args):
                     pose = integrar(pose, args.velocidad, w, DT)
 
             elif estado == 'GIRAR_IZQUIERDA':
-                v, w, terminado = calcular_comando_giro(pose.theta, giro_objetivo, params_giro)
+                # Lectura de linea EN VIVO durante el giro (no ciego):
+                # se usa para detectar cuando ya quedo paralelo a la
+                # pared siguiente, en vez de un angulo fijo.
+                ajuste = ajustar_linea_pared(angulos, rangos, *VENT_LINEA,
+                                              range_min=RANGE_MIN, range_max=RANGE_MAX, min_puntos=6)
+                angulo_girado = abs(diferencia_angular(pose.theta, yaw_inicio_giro))
+                v, w, terminado = calcular_comando_giro_dinamico(
+                    'IZQUIERDA', angulo_girado, ajuste, params_giro_dinamico
+                )
                 pose = integrar(pose, v, w, DT)
-                ajuste = None
                 if terminado:
+                    print(f'[paso {paso}] GIRO TERMINADO (paralelo) theta={math.degrees(pose.theta):+.1f} '
+                          f'girado={math.degrees(angulo_girado):.0f}°')
                     estado = 'AVANZAR'
 
             trayectoria_x.append(pose.x)

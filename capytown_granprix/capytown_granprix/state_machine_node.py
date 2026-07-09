@@ -90,6 +90,7 @@ class StateMachineNode(Node):
         self._esperando_obstaculo = False
         self._espera_obstaculo_inicio = None
         self._contador_frente_dos_reglas = 0
+        self._yaw_inicio_giro = 0.0
 
         self._STATE_HANDLERS = {
             'INICIAR': self._handle_iniciar,
@@ -173,6 +174,15 @@ class StateMachineNode(Node):
             # ciclo (100% ruido/transitorio) no alcanza para disparar un
             # giro, tiene que sostenerse.
             'frente_confirmaciones_ciclos': 3,
+            # Giro DINAMICO de logica_dos_reglas: no gira a angulo_giro_deg
+            # fijo -- gira hasta quedar paralelo a la pared siguiente
+            # (right_line_angle_rad ~0, con tolerancia_giro_deg), leyendo
+            # la linea EN VIVO durante el giro. angulo_minimo_giro_deg es
+            # resguardo (no detectar "paralelo" antes de girar al menos
+            # esto, para no confundirse con la pared VIEJA); angulo_maximo_
+            # giro_deg es tope de seguridad si nunca encuentra pared.
+            'angulo_minimo_giro_deg': 45.0,
+            'angulo_maximo_giro_deg': 150.0,
             'umbral_frente_pared_m': 0.25,
             'umbral_frente_libre_m': 0.35,
             'umbral_lado_libre_m': 0.40,
@@ -239,6 +249,8 @@ class StateMachineNode(Node):
         self._angular_max_recta = float(g('angular_max_recta_radps'))
         self._frente_confirmaciones_ciclos = int(g('frente_confirmaciones_ciclos'))
         self._contador_frente_dos_reglas = 0
+        self._angulo_minimo_giro_rad = math.radians(float(g('angulo_minimo_giro_deg')))
+        self._angulo_maximo_giro_rad = math.radians(float(g('angulo_maximo_giro_deg')))
 
         self._umbral_frente_pared = float(g('umbral_frente_pared_m'))
         self._umbral_frente_libre = float(g('umbral_frente_libre_m'))
@@ -433,7 +445,7 @@ class StateMachineNode(Node):
         if self._contador_frente_dos_reglas >= self._frente_confirmaciones_ciclos:
             self._contador_frente_dos_reglas = 0
             self._decision_actual = 'IZQUIERDA'
-            self._giro_objetivo = self._compute_turn_target(self._yaw, 'IZQUIERDA')
+            self._yaw_inicio_giro = self._yaw
             self._publish_event(
                 EV.GIRO, f'obstaculo al frente ({z.front_narrow:.2f}m) -> IZQUIERDA'
             )
@@ -571,17 +583,15 @@ class StateMachineNode(Node):
         return normalize_angle(yaw + delta)
 
     def _handle_girar(self):
+        if self._logica_dos_reglas:
+            self._handle_girar_dinamico()
+            return
+
         error = angle_diff(self._giro_objetivo, self._yaw)
 
         if abs(error) <= self._tolerancia_giro_rad:
             self._publish_twist(Twist())
             self._grid.apply_turn(self._decision_actual)
-            if self._logica_dos_reglas:
-                # Sin ALINEAR en este modo -- pase lo que pase, el giro
-                # ya cerro el lazo contra el yaw objetivo (90 grados
-                # fijos); vuelve directo a avanzar recto.
-                self._set_state('AVANZAR_PARALELO')
-                return
             # ALINEAR corre siempre, incluso en modo_simplificado: GIRAR
             # por si solo solo cierra el lazo contra el yaw de odometria
             # (un angulo objetivo fijo, con la deriva propia del
@@ -598,6 +608,50 @@ class StateMachineNode(Node):
         cmd = Twist()
         cmd.linear.x = self._v_giro_lineal
         cmd.angular.z = self._v_giro_angular if error > 0.0 else -self._v_giro_angular
+        self._publish_twist(cmd)
+
+    def _handle_girar_dinamico(self):
+        """Giro DINAMICO (logica_dos_reglas): no gira a un angulo fijo
+        -- sigue girando, leyendo la linea de la pared derecha EN VIVO
+        (no ciego como el giro fijo), hasta quedar paralelo a la pared
+        siguiente (right_line_angle_rad ~0), en vez de confiar en un
+        angulo objetivo de odometria. Reemplaza GIRAR+ALINEAR por un
+        solo movimiento continuo.
+
+        angulo_minimo_giro_deg: resguardo -- recien despues de girar
+        al menos esto (por odometria) se puede detectar "paralelo";
+        si no, al arrancar el giro puede seguir viendo la pared VIEJA
+        (la que seguia antes del obstaculo) casi paralela y pararia
+        de inmediato sin girar nada.
+        angulo_maximo_giro_deg: tope de seguridad si nunca encuentra
+        una pared paralela (p.ej. queda mirando a un espacio abierto).
+        """
+        z = self._zones
+        angulo_girado = abs(angle_diff(self._yaw, self._yaw_inicio_giro))
+
+        if angulo_girado >= self._angulo_minimo_giro_rad:
+            if z.right_line_valid and abs(z.right_line_angle_rad) <= self._tolerancia_giro_rad:
+                self._publish_twist(Twist())
+                self._grid.apply_turn(self._decision_actual)
+                self.get_logger().info(
+                    f'GIRO TERMINADO (paralelo): girado={math.degrees(angulo_girado):.0f} deg'
+                )
+                self._set_state('AVANZAR_PARALELO')
+                return
+
+        if angulo_girado >= self._angulo_maximo_giro_rad:
+            self._publish_twist(Twist())
+            self._grid.apply_turn(self._decision_actual)
+            self.get_logger().info(
+                f'GIRO TERMINADO (tope de seguridad, sin pared paralela): '
+                f'girado={math.degrees(angulo_girado):.0f} deg'
+            )
+            self._set_state('AVANZAR_PARALELO')
+            return
+
+        cmd = Twist()
+        cmd.linear.x = self._v_giro_lineal
+        cmd.angular.z = self._v_giro_angular if self._decision_actual == 'IZQUIERDA' else -self._v_giro_angular
         self._publish_twist(cmd)
 
     def _handle_alinear(self):
