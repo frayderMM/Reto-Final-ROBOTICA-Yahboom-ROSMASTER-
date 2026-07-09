@@ -162,6 +162,12 @@ state_machine:
     angular_max_recta_radps: 0.6
     frente_confirmaciones_ciclos: 3
     linea_perdida_confirmaciones_ciclos: 3
+    # Al confirmar perdida de pared derecha, detenerse este tiempo y
+    # RECIEN despues verificar si el lado derecho esta realmente libre
+    # (con right/right_valid puntual, no la linea) antes de girar --
+    # evita girar hacia un hueco que en realidad no esta libre (ver
+    # PAUSA_LINEA_PERDIDA en state_machine_node.py).
+    tiempo_verificar_hueco_s: 2.0
     # Giro dinamico: resguardo minimo (no confundir con la pared vieja)
     # y tope maximo de seguridad (si nunca encuentra pared paralela).
     angulo_minimo_giro_deg: 45.0

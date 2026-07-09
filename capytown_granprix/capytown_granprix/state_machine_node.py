@@ -20,6 +20,12 @@ DETALLE RETO 3.md):
     detenido entre "ya decidi" y "empiezo a girar", para que el giro se
     vea como un movimiento separado del avance.
 
+    En logica_dos_reglas, si se pierde la pared derecha (en vez de
+    obstaculo al frente) se pasa por ``PAUSA_LINEA_PERDIDA`` en vez de
+    PAUSA_GIRO: detenido ``tiempo_verificar_hueco_s`` (2s) y RECIEN
+    despues verifica si el lado derecho esta realmente libre antes de
+    comprometerse a girar -- ver ``_handle_pausa_linea_perdida``.
+
 Se agrega un estado adicional ``DETENIDO`` (fuera de la lista pedida)
 solo como red de seguridad ante un limite de celdas recorridas sin
 llegar a la meta (evita loops infinitos por fallas de sensor); no
@@ -92,6 +98,7 @@ class StateMachineNode(Node):
         self._contador_frente_dos_reglas = 0
         self._contador_linea_perdida_dos_reglas = 0
         self._yaw_inicio_giro = 0.0
+        self._pausa_linea_perdida_start = None
 
         self._STATE_HANDLERS = {
             'INICIAR': self._handle_iniciar,
@@ -100,6 +107,7 @@ class StateMachineNode(Node):
             'BUSCAR_PARE': self._handle_buscar_pare,
             'DECIDIR': self._handle_decidir,
             'PAUSA_GIRO': self._handle_pausa_giro,
+            'PAUSA_LINEA_PERDIDA': self._handle_pausa_linea_perdida,
             'GIRAR': self._handle_girar,
             'ALINEAR': self._handle_alinear,
             'VERIFICAR_META': self._handle_verificar_meta,
@@ -180,6 +188,11 @@ class StateMachineNode(Node):
             # la derecha) y girar -- igual motivo que frente_confirmaciones_
             # ciclos: un solo ciclo sin lectura valida puede ser ruido.
             'linea_perdida_confirmaciones_ciclos': 3,
+            # Una vez confirmada la perdida de la pared derecha, se
+            # detiene por completo este tiempo (PAUSA_LINEA_PERDIDA)
+            # antes de verificar si el lado derecho esta REALMENTE
+            # libre (z.right puntual, no la linea) y recien ahi girar.
+            'tiempo_verificar_hueco_s': 2.0,
             # Giro DINAMICO de logica_dos_reglas: no gira a angulo_giro_deg
             # fijo -- gira hasta quedar paralelo a la pared siguiente
             # (right_line_angle_rad ~0, con tolerancia_giro_deg), leyendo
@@ -255,6 +268,7 @@ class StateMachineNode(Node):
         self._angular_max_recta = float(g('angular_max_recta_radps'))
         self._frente_confirmaciones_ciclos = int(g('frente_confirmaciones_ciclos'))
         self._linea_perdida_confirmaciones_ciclos = int(g('linea_perdida_confirmaciones_ciclos'))
+        self._tiempo_verificar_hueco = float(g('tiempo_verificar_hueco_s'))
         self._contador_frente_dos_reglas = 0
         self._contador_linea_perdida_dos_reglas = 0
         self._angulo_minimo_giro_rad = math.radians(float(g('angulo_minimo_giro_deg')))
@@ -479,12 +493,10 @@ class StateMachineNode(Node):
 
         if self._contador_linea_perdida_dos_reglas >= self._linea_perdida_confirmaciones_ciclos:
             self._contador_linea_perdida_dos_reglas = 0
-            self._decision_actual = 'DERECHA'
-            self._yaw_inicio_giro = self._yaw
-            self._publish_event(EV.GIRO, 'perdio la pared derecha (hueco/esquina) -> DERECHA')
+            self._publish_event(EV.GIRO, 'perdio la pared derecha -> detenido a verificar')
             self._publish_twist(Twist())
-            self._pausa_giro_start = self.get_clock().now()
-            self._set_state('PAUSA_GIRO')
+            self._pausa_linea_perdida_start = self.get_clock().now()
+            self._set_state('PAUSA_LINEA_PERDIDA')
             return
 
         cmd = Twist()
@@ -500,6 +512,33 @@ class StateMachineNode(Node):
         cmd.linear.x = self._velocidad_recta
         cmd.angular.z = max(-self._angular_max_recta, min(self._angular_max_recta, correccion))
         self._publish_twist(cmd)
+
+    def _handle_pausa_linea_perdida(self):
+        """Se detiene tiempo_verificar_hueco_s (2s) apenas se confirma
+        que perdio la pared derecha, y RECIEN despues chequea si el
+        lado derecho esta realmente libre (z.right, no la linea) antes
+        de comprometerse a girar -- evita girar hacia un hueco que en
+        realidad no esta libre (p.ej. algo demasiado cerca para que el
+        LiDAR lo mida, que se ve igual que "sin pared" en la linea)."""
+        self._publish_twist(Twist())
+        elapsed = (self.get_clock().now() - self._pausa_linea_perdida_start).nanoseconds / 1e9
+        if elapsed < self._tiempo_verificar_hueco:
+            return
+
+        z = self._zones
+        derecha_libre = bool(z.right_valid and z.right > self._umbral_lado_libre)
+
+        if not derecha_libre:
+            # No estaba realmente libre: retoma el avance normal en
+            # vez de forzar un giro hacia algo que no es un hueco real.
+            self._publish_event(EV.GIRO, 'lado derecho no esta libre -> retoma avance')
+            self._set_state('AVANZAR_PARALELO')
+            return
+
+        self._decision_actual = 'DERECHA'
+        self._yaw_inicio_giro = self._yaw
+        self._publish_event(EV.GIRO, f'lado derecho libre ({z.right:.2f}m) -> DERECHA')
+        self._set_state('GIRAR')
 
     def _handle_detectar_cruce(self):
         self._publish_twist(Twist())

@@ -115,6 +115,11 @@ def parse_args():
                     help='solo --logica simple: ciclos seguidos SIN ajuste de linea valido '
                          'antes de asumir que la pared se abrio (esquina concava/hueco a la '
                          'derecha) y girar a la derecha')
+    p.add_argument('--tiempo-verificar-hueco', type=float, default=2.0,
+                    help='solo --logica simple: al confirmar perdida de la pared derecha, se '
+                         'detiene este tiempo (s) y RECIEN despues verifica con distancia '
+                         'puntual (no la linea) si el lado derecho esta realmente libre, antes '
+                         'de comprometerse a girar')
     p.add_argument('--angulo-minimo-giro', type=float, default=45.0,
                     help='giro DINAMICO: grados minimos (por odometria, solo de resguardo) '
                          'antes de poder detectar "ya quedo paralelo" y parar')
@@ -324,9 +329,14 @@ def _correr_logica_simple(args):
        mantenerse paralelo y cerca.
     3. Si se PIERDE la pared derecha (sin ajuste valido) sostenido
        durante --linea-perdida-confirmaciones ciclos seguidos (no un
-       solo vistazo), es que la pared se abrio (esquina concava/hueco
-       a la derecha) -- girar a la DERECHA. Mientras no se confirme,
-       sigue avanzando recto sin corregir nada.
+       solo vistazo), se detiene por completo (PAUSA_LINEA_PERDIDA)
+       durante --tiempo-verificar-hueco (2s) y RECIEN despues verifica
+       con distancia puntual (no la linea) si el lado derecho esta
+       realmente libre -- evita girar hacia un "hueco" que en realidad
+       es algo demasiado cerca para que el LiDAR lo mida (que se ve
+       igual que "sin pared" en el ajuste de linea). Si esta libre,
+       gira a la DERECHA; si no, retoma AVANZAR. Mientras no se
+       confirme la perdida, sigue avanzando recto sin corregir nada.
     4. Si detecta un obstaculo al frente (cono angosto, ver
        VENT_FRONT_ESTRECHO) sostenido durante --frente-confirmaciones
        ciclos seguidos, girar a la IZQUIERDA.
@@ -363,6 +373,7 @@ def _correr_logica_simple(args):
     num_giros = 0
     contador_frente = 0
     contador_linea_perdida = 0
+    pausa_linea_perdida_inicio = None
 
     trayectoria_x, trayectoria_y = [pose.x], [pose.y]
     rng = np.random.default_rng(0)
@@ -408,14 +419,12 @@ def _correr_logica_simple(args):
                     linea_perdida_confirmada = contador_linea_perdida >= args.linea_perdida_confirmaciones
 
                     if linea_perdida_confirmada:
-                        num_giros += 1
                         contador_linea_perdida = 0
-                        direccion_giro = 'DERECHA'
-                        yaw_inicio_giro = pose.theta
-                        ultima_decision_info = 'perdio la pared derecha (hueco/esquina) -> DERECHA'
+                        ultima_decision_info = 'perdio la pared derecha -> detenido a verificar'
                         print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
                               f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
-                        estado = 'GIRAR_IZQUIERDA'  # mismo estado, sirve para cualquier direccion
+                        pausa_linea_perdida_inicio = paso
+                        estado = 'PAUSA_LINEA_PERDIDA'
                         ajuste = None
                     elif ajuste is None:
                         # Perdida no confirmada todavia: avanzar recto, sin corregir nada.
@@ -427,6 +436,32 @@ def _correr_logica_simple(args):
                                       + args.ganancia_distancia * error_distancia)
                         w = max(-args.angular_max, min(args.angular_max, correccion))
                         pose = integrar(pose, args.velocidad, w, DT)
+
+            elif estado == 'PAUSA_LINEA_PERDIDA':
+                # Detenido --tiempo-verificar-hueco (2s) apenas se
+                # confirma la perdida de la pared derecha, y RECIEN
+                # despues chequea si el lado derecho esta realmente
+                # libre (distancia puntual, no la linea) antes de
+                # comprometerse a girar -- evita girar hacia un hueco
+                # que en realidad no esta libre (ver
+                # _handle_pausa_linea_perdida en state_machine_node.py).
+                ajuste = None
+                if (paso - pausa_linea_perdida_inicio) * DT >= args.tiempo_verificar_hueco:
+                    right_d, right_v = zona_min(angulos, rangos, VENT_LINEA)
+                    derecha_libre = right_v and right_d > args.umbral_lado_libre
+                    if derecha_libre:
+                        num_giros += 1
+                        direccion_giro = 'DERECHA'
+                        yaw_inicio_giro = pose.theta
+                        ultima_decision_info = f'lado derecho libre ({right_d*100:.0f}cm) -> DERECHA'
+                        print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
+                              f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
+                        estado = 'GIRAR_IZQUIERDA'  # mismo estado, sirve para cualquier direccion
+                    else:
+                        ultima_decision_info = 'lado derecho no esta libre -> retoma avance'
+                        print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
+                              f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
+                        estado = 'AVANZAR'
 
             elif estado == 'GIRAR_IZQUIERDA':
                 # Lectura de linea EN VIVO durante el giro (no ciego):
@@ -555,6 +590,7 @@ def _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado, decision_info,
         'AVANZAR_PARALELO': 'black', 'PAUSA_GIRO': 'firebrick',
         'GIRAR': 'purple', 'ALINEAR': 'teal',
         'AVANZAR': 'black', 'GIRAR_IZQUIERDA': 'purple',
+        'PAUSA_LINEA_PERDIDA': 'firebrick',
     }.get(estado, 'black')
     accion = _descripcion_accion(estado, decision_actual, args)
     info = f'estado={estado}  celdas={num_celdas}  giros={num_giros}\n{decision_info}'
