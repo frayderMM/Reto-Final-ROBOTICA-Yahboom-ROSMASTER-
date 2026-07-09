@@ -34,15 +34,18 @@ unique_line:
     safety_side_dist: 0.092
 
     # --- Ganancias de control ---
-    # Subidas desde la version original (Kp_wall 1.00->1.35, Kp_heading
-    # 0.98->1.25, w_limit 0.6->0.75) junto con las velocidades de abajo:
-    # validado en sim_local (10/10 SUCCESS, min dist a pared 0.0800-0.1025m,
-    # ~22% mas rapido que la version original, ver unique_line_report.md).
-    Kp_wall: 1.35
-    Kp_heading: 1.25
+    # Historial: 1.00/0.98/0.6 (original) -> 1.35/1.25/0.75 (subida junto
+    # con la velocidad) -> 1.6/1.5/0.85 (correccion mas estricta, pedida
+    # tras probar en pista). deadband_dist se DEJA IGUAL a proposito: en
+    # simulador, bajarlo junto con Kp altos amplificaba el ruido del LiDAR
+    # hasta rozar colision (probado: Kp_wall=1.7+deadband=0.012 fallaba
+    # 2/10 con ruido). Con deadband sin tocar: 10/10 SUCCESS + 80/80 en
+    # una prueba extra de robustez con mas semillas de ruido.
+    Kp_wall: 1.6
+    Kp_heading: 1.5
     deadband_dist: 0.024
     filter_alpha: 0.24
-    w_limit: 0.75
+    w_limit: 0.85
 
     # --- Velocidades (m/s, rad/s) ---
     v_nom: 0.19

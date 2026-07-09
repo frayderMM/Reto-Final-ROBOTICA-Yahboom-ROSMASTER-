@@ -77,11 +77,11 @@ class UniqueLineConfig:
     collision_radius: float = 0.075
     safety_side_dist: float = 0.092
 
-    Kp_wall: float = 1.35
-    Kp_heading: float = 1.25
+    Kp_wall: float = 1.6
+    Kp_heading: float = 1.5
     deadband_dist: float = 0.024
     filter_alpha: float = 0.24
-    w_limit: float = 0.75
+    w_limit: float = 0.85
 
     v_nom: float = 0.19
     v_align: float = 0.090
@@ -493,11 +493,11 @@ class UniqueLineNode(Node):
             'collision_radius': 0.075,
             'safety_side_dist': 0.092,
 
-            'Kp_wall': 1.35,
-            'Kp_heading': 1.25,
+            'Kp_wall': 1.6,
+            'Kp_heading': 1.5,
             'deadband_dist': 0.024,
             'filter_alpha': 0.24,
-            'w_limit': 0.75,
+            'w_limit': 0.85,
 
             'v_nom': 0.19,
             'v_align': 0.090,

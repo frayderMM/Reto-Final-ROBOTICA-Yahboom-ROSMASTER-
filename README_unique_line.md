@@ -114,12 +114,16 @@ completa comentada. Los mas relevantes para calibrar en pista real:
   (0.095): velocidades por estado -- subidas desde 0.145/0.050/0.070/
   0.075 originales, validado en simulador (10/10 SUCCESS, ~22% mas
   rapido, mismo margen a colision).
-- `Kp_wall` (1.35), `Kp_heading` (1.25), `w_limit` (0.75): ganancias de
-  correccion -- subidas desde 1.00/0.98/0.6 junto con la velocidad
-  (mas velocidad exige mas autoridad de giro para no irse de la
-  distancia objetivo).
-- `deadband_dist`, `filter_alpha`: filtrado de la lectura lateral (sin
-  cambios).
+- `Kp_wall` (1.6), `Kp_heading` (1.5), `w_limit` (0.85): ganancias de
+  correccion -- historial 1.00/0.98/0.6 (original) -> 1.35/1.25/0.75
+  (subida junto con la velocidad) -> 1.6/1.5/0.85 (correccion mas
+  estricta, pedida tras probar en pista).
+- `deadband_dist` (0.024): se dejo IGUAL a proposito al subir Kp --
+  bajarlo junto con ganancias altas amplifica el ruido del LiDAR hasta
+  rozar colision (probado en simulador: Kp_wall=1.7 + deadband=0.012
+  fallaba 2/10 con ruido). Con el deadband sin tocar: 10/10 SUCCESS +
+  80/80 en una prueba extra de robustez con mas semillas de ruido.
+- `filter_alpha`: filtrado de la lectura lateral (sin cambios).
 - `front_offset_deg` / `invert_left_right`: calibracion de montaje del
   LiDAR -- mismos valores ya validados para este robot en
   `granprix_params.yaml` (ver `logica_pared_derecha_robot.md` seccion
