@@ -65,11 +65,17 @@ interior final -- ver `POINTS` en `unique_line_simulator.py`.
 
 ### Resultado obtenido (parametros por defecto, seguimiento derecho)
 
-**10/10 SUCCESS, 0 colisiones, 0 timeouts.** Angulo final entre 87.72°
-y 87.80° en las 10 pruebas (banda de referencia pedida: 88-90°, ver
+**10/10 SUCCESS, 0 colisiones, 0 timeouts.** Angulo final entre 87.75°
+y 88.05° en las 10 pruebas (banda de referencia pedida: 88-90°, ver
 `sim_local/unique_line_report.md` para la tabla completa fila por
 fila). Distancia minima a cualquier pared siempre >= 0.080 m (limite
 de colision configurado: 0.075 m).
+
+Version "rapida" (velocidad y ganancias de correccion subidas desde la
+version original, ver seccion 5): recorre la misma pista en ~116 s en
+promedio en vez de ~148 s (~22% mas rapido), manteniendo el mismo
+margen de seguridad a pared (10/10 SUCCESS, sin acercarse mas a
+colision que la version original).
 
 ## 4. Nodo ROS2: como correrlo
 
@@ -104,9 +110,16 @@ completa comentada. Los mas relevantes para calibrar en pista real:
 - `target_wall_dist` (0.12 m), `front_blocked_dist` (0.36 m),
   `front_clear_dist` (0.44 m): distancias que disparan las
   transiciones de estado.
-- `v_nom`, `v_corner`, `v_align`, `v_clear`: velocidades por estado.
-- `Kp_wall`, `Kp_heading`, `deadband_dist`, `filter_alpha`: control y
-  filtrado de la lectura lateral.
+- `v_nom` (0.19 m/s), `v_corner` (0.065), `v_align` (0.090), `v_clear`
+  (0.095): velocidades por estado -- subidas desde 0.145/0.050/0.070/
+  0.075 originales, validado en simulador (10/10 SUCCESS, ~22% mas
+  rapido, mismo margen a colision).
+- `Kp_wall` (1.35), `Kp_heading` (1.25), `w_limit` (0.75): ganancias de
+  correccion -- subidas desde 1.00/0.98/0.6 junto con la velocidad
+  (mas velocidad exige mas autoridad de giro para no irse de la
+  distancia objetivo).
+- `deadband_dist`, `filter_alpha`: filtrado de la lectura lateral (sin
+  cambios).
 - `front_offset_deg` / `invert_left_right`: calibracion de montaje del
   LiDAR -- mismos valores ya validados para este robot en
   `granprix_params.yaml` (ver `logica_pared_derecha_robot.md` seccion

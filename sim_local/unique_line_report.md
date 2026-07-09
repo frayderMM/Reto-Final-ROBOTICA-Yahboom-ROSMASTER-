@@ -12,16 +12,16 @@ Polilinea de una sola pared (ver `POINTS` en `unique_line_simulator.py`), con un
 
 | # | dist. inicial (m) | ruido | resultado | estado final | angulo final (deg) | min dist. a pared (m) | pasos | tiempo (s) |
 |---:|---:|:---:|:---:|---|---:|---:|---:|---:|
-| 1 | 0.08 | no | SUCCESS | FOLLOW_WALL | 87.79 | 0.0800 | 2981 | 149.1 |
-| 2 | 0.10 | no | SUCCESS | FOLLOW_WALL | 87.78 | 0.1000 | 2943 | 147.2 |
-| 3 | 0.12 | no | SUCCESS | FOLLOW_WALL | 87.78 | 0.1137 | 2950 | 147.5 |
-| 4 | 0.14 | no | SUCCESS | FOLLOW_WALL | 87.78 | 0.1137 | 2955 | 147.8 |
-| 5 | 0.16 | no | SUCCESS | FOLLOW_WALL | 87.75 | 0.1170 | 2958 | 147.9 |
-| 6 | 0.18 | no | SUCCESS | FOLLOW_WALL | 87.77 | 0.1172 | 2957 | 147.8 |
-| 7 | 0.20 | si | SUCCESS | FOLLOW_WALL | 87.79 | 0.0976 | 2957 | 147.8 |
-| 8 | 0.24 | si | SUCCESS | FOLLOW_WALL | 87.72 | 0.0881 | 2946 | 147.3 |
-| 9 | 0.28 | si | SUCCESS | FOLLOW_WALL | 87.76 | 0.0994 | 3031 | 151.6 |
-| 10 | 0.32 | si | SUCCESS | FOLLOW_WALL | 87.80 | 0.0952 | 3021 | 151.1 |
+| 1 | 0.08 | no | SUCCESS | FOLLOW_WALL | 87.94 | 0.0800 | 2349 | 117.5 |
+| 2 | 0.10 | no | SUCCESS | FOLLOW_WALL | 88.03 | 0.1000 | 2255 | 112.8 |
+| 3 | 0.12 | no | SUCCESS | FOLLOW_WALL | 87.89 | 0.1016 | 2301 | 115.0 |
+| 4 | 0.14 | no | SUCCESS | FOLLOW_WALL | 87.93 | 0.1008 | 2306 | 115.3 |
+| 5 | 0.16 | no | SUCCESS | FOLLOW_WALL | 87.96 | 0.1025 | 2322 | 116.1 |
+| 6 | 0.18 | no | SUCCESS | FOLLOW_WALL | 87.91 | 0.1020 | 2357 | 117.8 |
+| 7 | 0.20 | si | SUCCESS | FOLLOW_WALL | 87.75 | 0.0873 | 2374 | 118.7 |
+| 8 | 0.24 | si | SUCCESS | FOLLOW_WALL | 87.87 | 0.0805 | 2333 | 116.7 |
+| 9 | 0.28 | si | SUCCESS | FOLLOW_WALL | 88.05 | 0.0873 | 2325 | 116.2 |
+| 10 | 0.32 | si | SUCCESS | FOLLOW_WALL | 87.91 | 0.0855 | 2329 | 116.5 |
 
 ## Criterios de aceptacion (seccion 14 del pedido)
 
@@ -47,16 +47,16 @@ lost_wall_dist = 0.34
 reacquire_wall_dist = 0.28
 collision_radius = 0.075
 safety_side_dist = 0.092
-Kp_wall = 1.0
-Kp_heading = 0.98
+Kp_wall = 1.35
+Kp_heading = 1.25
 deadband_dist = 0.024
 filter_alpha = 0.24
-w_limit = 0.6
-v_nom = 0.145
-v_align = 0.07
-v_corner = 0.05
-w_corner = 0.46
-v_clear = 0.075
+w_limit = 0.75
+v_nom = 0.19
+v_align = 0.09
+v_corner = 0.065
+w_corner = 0.55
+v_clear = 0.095
 exterior_clear_dist = 0.18
 lost_required = 4
 clear_required = 4

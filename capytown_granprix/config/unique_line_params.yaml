@@ -34,18 +34,22 @@ unique_line:
     safety_side_dist: 0.092
 
     # --- Ganancias de control ---
-    Kp_wall: 1.00
-    Kp_heading: 0.98
+    # Subidas desde la version original (Kp_wall 1.00->1.35, Kp_heading
+    # 0.98->1.25, w_limit 0.6->0.75) junto con las velocidades de abajo:
+    # validado en sim_local (10/10 SUCCESS, min dist a pared 0.0800-0.1025m,
+    # ~22% mas rapido que la version original, ver unique_line_report.md).
+    Kp_wall: 1.35
+    Kp_heading: 1.25
     deadband_dist: 0.024
     filter_alpha: 0.24
-    w_limit: 0.6
+    w_limit: 0.75
 
     # --- Velocidades (m/s, rad/s) ---
-    v_nom: 0.145
-    v_align: 0.070
-    v_corner: 0.050
-    w_corner: 0.46
-    v_clear: 0.075
+    v_nom: 0.19
+    v_align: 0.090
+    v_corner: 0.065
+    w_corner: 0.55
+    v_clear: 0.095
     exterior_clear_dist: 0.18
 
     # --- Confirmaciones (ciclos de control seguidos) ---

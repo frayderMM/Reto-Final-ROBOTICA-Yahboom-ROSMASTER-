@@ -86,17 +86,17 @@ class UniqueLineConfig:
     collision_radius: float = 0.075
     safety_side_dist: float = 0.092
 
-    Kp_wall: float = 1.00
-    Kp_heading: float = 0.98
+    Kp_wall: float = 1.35
+    Kp_heading: float = 1.25
     deadband_dist: float = 0.024
     filter_alpha: float = 0.24
-    w_limit: float = 0.6
+    w_limit: float = 0.75
 
-    v_nom: float = 0.145
-    v_align: float = 0.070
-    v_corner: float = 0.050
-    w_corner: float = 0.46
-    v_clear: float = 0.075
+    v_nom: float = 0.19
+    v_align: float = 0.090
+    v_corner: float = 0.065
+    w_corner: float = 0.55
+    v_clear: float = 0.095
     exterior_clear_dist: float = 0.18
 
     lost_required: int = 4
