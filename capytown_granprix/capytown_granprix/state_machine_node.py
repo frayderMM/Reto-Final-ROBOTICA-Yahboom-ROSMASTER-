@@ -206,7 +206,7 @@ class StateMachineNode(Node):
             # (PAUSA_CHEQUEO_PARED) tiempo_chequeo_pared_s y verifica
             # con distancia PUNTUAL (no la linea) si el lado seguido
             # esta ocupado o vacio.
-            'distancia_chequeo_pared_m': 0.20,
+            'distancia_chequeo_pared_m': 0.12,
             'tiempo_chequeo_pared_s': 0.5,
             # "Lado derecho vacio" tiene que sostenerse esta cantidad
             # de ciclos SEGUIDOS (no una sola lectura) antes de
@@ -225,9 +225,9 @@ class StateMachineNode(Node):
             # _handle_girar_dinamico). angulo_maximo_giro_deg es tope
             # de seguridad adicional (por si el odometro se traba).
             'angulo_maximo_giro_deg': 150.0,
-            'umbral_frente_pared_m': 0.25,
+            'umbral_frente_pared_m': 0.30,
             'umbral_frente_libre_m': 0.35,
-            'umbral_lado_libre_m': 0.40,
+            'umbral_lado_libre_m': 0.30,
             # Regla general de seguridad (siempre activa, en cualquier
             # estado): objeto al frente mas cerca que esto -> detenerse
             # de inmediato, esperar y volver a preguntar si esta libre.

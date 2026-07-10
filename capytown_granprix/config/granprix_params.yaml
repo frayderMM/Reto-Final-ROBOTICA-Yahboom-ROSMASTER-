@@ -192,7 +192,7 @@ state_machine:
     # vacio, gira a la DERECHA; si esta ocupado, retoma el avance
     # (reinicia el contador de distancia desde ahi), ver
     # PAUSA_CHEQUEO_PARED en state_machine_node.py.
-    distancia_chequeo_pared_m: 0.20
+    distancia_chequeo_pared_m: 0.12
     tiempo_chequeo_pared_s: 0.5
     # "Lado derecho vacio" tiene que sostenerse esta cantidad de
     # ciclos SEGUIDOS (no una sola lectura) antes de comprometerse a
@@ -228,9 +228,9 @@ state_machine:
     # subiendo este umbral y velocidad_giro_angular_radps (ver abajo) el
     # margen sube a ~4.7 cm sin tocar distancia_objetivo_m (ya validado
     # para el seguimiento recto).
-    umbral_frente_pared_m: 0.40    # pared al frente: detener avance
+    umbral_frente_pared_m: 0.30    # pared al frente: detener avance
     umbral_frente_libre_m: 0.35    # frente libre para avanzar/decidir
-    umbral_lado_libre_m: 0.40      # camino lateral libre (derecha/izquierda)
+    umbral_lado_libre_m: 0.30      # camino lateral libre (derecha/izquierda)
 
     # Regla general de seguridad (siempre activa, en cualquier estado):
     # objeto al frente mas cerca que esto -> detenerse de inmediato,
