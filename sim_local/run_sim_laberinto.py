@@ -333,16 +333,20 @@ def _correr_logica_simple(args):
        mantenerse paralelo y cerca.
     3. Chequeo PERIODICO de la pared derecha (no deteccion continua
        por LiDAR -- en la practica no distinguia bien "pared" de
-       "hueco"): cada --distancia-chequeo-pared (30cm) de avance en
-       linea recta, se detiene por completo y verifica con distancia
-       PUNTUAL (VENT_LINEA con zona_min, no el ajuste de recta) si el
-       lado derecho esta ocupado o vacio, tras --tiempo-chequeo-pared
-       (1s) detenido. Si esta vacio, gira a la DERECHA; si esta
-       ocupado, retoma el avance reiniciando el contador de distancia
-       desde ahi (evita reintentar en el mismo lugar).
+       "hueco"), evaluado ANTES que el frente (regla 4): cada
+       --distancia-chequeo-pared (30cm) de avance en linea recta, se
+       detiene por completo y verifica con distancia PUNTUAL
+       (VENT_LINEA con zona_min, no el ajuste de recta) si el lado
+       derecho esta ocupado o vacio, tras --tiempo-chequeo-pared (1s)
+       detenido. Si esta vacio, gira a la DERECHA; si esta ocupado,
+       retoma el avance reiniciando el contador de distancia desde ahi
+       (evita reintentar en el mismo lugar).
     4. Si detecta un obstaculo al frente (cono angosto, ver
        VENT_FRONT_ESTRECHO) sostenido durante --frente-confirmaciones
-       ciclos seguidos, girar a la IZQUIERDA.
+       ciclos seguidos, girar a la IZQUIERDA. Se evalua DESPUES de la
+       regla 3: en el paso exacto en que ambas coincidirian, se
+       prioriza el chequeo de pared (de todas formas el resultado es
+       el mismo freno en seco).
 
     Ambos giros son DINAMICOS, no un angulo fijo: siguen girando (con
     lectura de linea EN VIVO durante el giro) hasta quedar paralelos a
@@ -395,35 +399,35 @@ def _correr_logica_simple(args):
             )
 
             if estado == 'AVANZAR':
-                front_d, front_v = zona_min(angulos, rangos, VENT_FRONT_ESTRECHO)
-                frente_cerca_1_ciclo = front_v and front_d < args.umbral_frente_pared
-                contador_frente = contador_frente + 1 if frente_cerca_1_ciclo else 0
-                frente_bloqueado = contador_frente >= args.frente_confirmaciones
-
-                if frente_bloqueado:
-                    num_giros += 1
-                    contador_frente = 0
-                    direccion_giro = 'IZQUIERDA'
-                    yaw_inicio_giro = pose.theta
-                    ultima_decision_info = f'obstaculo al frente ({front_d*100:.0f}cm) -> IZQUIERDA'
+                avance_chequeo = math.hypot(
+                    pose.x - avance_chequeo_inicio_xy[0], pose.y - avance_chequeo_inicio_xy[1]
+                )
+                if avance_chequeo >= args.distancia_chequeo_pared:
+                    # Chequeo PERIODICO (no deteccion continua por
+                    # LiDAR), evaluado ANTES que el frente: cada
+                    # --distancia-chequeo-pared de avance, se detiene
+                    # por completo a verificar el lado derecho.
+                    ultima_decision_info = f'avanzo {avance_chequeo*100:.0f}cm -> detenido a verificar pared derecha'
                     print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
                           f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
-                    estado = 'GIRAR_IZQUIERDA'
+                    pausa_chequeo_inicio = paso
+                    estado = 'PAUSA_CHEQUEO_PARED'
                     ajuste = None
                 else:
-                    avance_chequeo = math.hypot(
-                        pose.x - avance_chequeo_inicio_xy[0], pose.y - avance_chequeo_inicio_xy[1]
-                    )
-                    if avance_chequeo >= args.distancia_chequeo_pared:
-                        # Chequeo PERIODICO (no deteccion continua por
-                        # LiDAR): cada --distancia-chequeo-pared de
-                        # avance, se detiene por completo a verificar
-                        # el lado derecho.
-                        ultima_decision_info = f'avanzo {avance_chequeo*100:.0f}cm -> detenido a verificar pared derecha'
+                    front_d, front_v = zona_min(angulos, rangos, VENT_FRONT_ESTRECHO)
+                    frente_cerca_1_ciclo = front_v and front_d < args.umbral_frente_pared
+                    contador_frente = contador_frente + 1 if frente_cerca_1_ciclo else 0
+                    frente_bloqueado = contador_frente >= args.frente_confirmaciones
+
+                    if frente_bloqueado:
+                        num_giros += 1
+                        contador_frente = 0
+                        direccion_giro = 'IZQUIERDA'
+                        yaw_inicio_giro = pose.theta
+                        ultima_decision_info = f'obstaculo al frente ({front_d*100:.0f}cm) -> IZQUIERDA'
                         print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
                               f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
-                        pausa_chequeo_inicio = paso
-                        estado = 'PAUSA_CHEQUEO_PARED'
+                        estado = 'GIRAR_IZQUIERDA'
                         ajuste = None
                     else:
                         ajuste = ajustar_linea_pared(angulos, rangos, *VENT_LINEA,

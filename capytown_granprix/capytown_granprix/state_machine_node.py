@@ -450,27 +450,45 @@ class StateMachineNode(Node):
            encaja como continuacion de esa recta).
         3. Chequeo PERIODICO de la pared derecha (no deteccion continua
            por LiDAR -- en la practica no distinguia bien "pared" de
-           "hueco", ver commit anterior): cada distancia_chequeo_
-           pared_m de avance en linea recta (medido por odometria
-           desde _avance_chequeo_start_xy), se detiene por completo y
-           pasa a PAUSA_CHEQUEO_PARED, que verifica con distancia
-           PUNTUAL (z.right, no la linea) si el lado derecho esta
-           ocupado o vacio -- si esta vacio, gira 90 grados DINAMICO a
-           la DERECHA (mismo mecanismo de la regla 4); si esta
-           ocupado, retoma el avance reiniciando el contador de
-           distancia desde ahi (evita reintentar en el mismo lugar).
+           "hueco", ver commit anterior), evaluado ANTES que el frente
+           (regla 4): cada distancia_chequeo_pared_m de avance en
+           linea recta (medido por odometria desde
+           _avance_chequeo_start_xy), se detiene por completo y pasa a
+           PAUSA_CHEQUEO_PARED, que verifica con distancia PUNTUAL
+           (z.right, no la linea) si el lado derecho esta ocupado o
+           vacio -- si esta vacio, gira 90 grados DINAMICO a la
+           DERECHA (mismo mecanismo de la regla 4); si esta ocupado,
+           retoma el avance reiniciando el contador de distancia desde
+           ahi (evita reintentar en el mismo lugar).
         4. Si hay obstaculo al frente (front_narrow, cono angosto)
            sostenido durante frente_confirmaciones_ciclos seguidos,
            girar 90 grados DINAMICO a la IZQUIERDA (ignora derecha/
            izquierda, no un angulo fijo -- sigue girando, leyendo la
            linea EN VIVO, hasta quedar paralelo a la pared siguiente)
-           y retomar.
+           y retomar. Se evalua DESPUES de la regla 3: en el ciclo
+           exacto en que ambas coincidirian, igual se prioriza el
+           chequeo de pared (de todas formas el resultado es el mismo
+           freno en seco -- ambas ramas publican velocidad cero).
 
         No cuenta celdas ni pasa por ALINEAR (el giro dinamico ya lo
         reemplaza) -- portado tal cual de
         sim_local/run_sim_laberinto.py::_correr_logica_simple.
         """
         z = self._zones
+
+        dx = self._odom_x - self._avance_chequeo_start_xy[0]
+        dy = self._odom_y - self._avance_chequeo_start_xy[1]
+        avance_chequeo = math.hypot(dx, dy)
+
+        if avance_chequeo >= self._distancia_chequeo_pared:
+            self._publish_event(
+                EV.GIRO, f'avanzo {avance_chequeo:.2f}m -> detenido a verificar pared derecha'
+            )
+            self._publish_twist(Twist())
+            self._pausa_chequeo_start = self.get_clock().now()
+            self._set_state('PAUSA_CHEQUEO_PARED')
+            return
+
         frente_cerca_1_ciclo = z.front_narrow_valid and z.front_narrow < self._umbral_frente_pared
         self._contador_frente_dos_reglas = (
             self._contador_frente_dos_reglas + 1 if frente_cerca_1_ciclo else 0
@@ -486,19 +504,6 @@ class StateMachineNode(Node):
             self._publish_twist(Twist())
             self._pausa_giro_start = self.get_clock().now()
             self._set_state('PAUSA_GIRO')
-            return
-
-        dx = self._odom_x - self._avance_chequeo_start_xy[0]
-        dy = self._odom_y - self._avance_chequeo_start_xy[1]
-        avance_chequeo = math.hypot(dx, dy)
-
-        if avance_chequeo >= self._distancia_chequeo_pared:
-            self._publish_event(
-                EV.GIRO, f'avanzo {avance_chequeo:.2f}m -> detenido a verificar pared derecha'
-            )
-            self._publish_twist(Twist())
-            self._pausa_chequeo_start = self.get_clock().now()
-            self._set_state('PAUSA_CHEQUEO_PARED')
             return
 
         cmd = Twist()
