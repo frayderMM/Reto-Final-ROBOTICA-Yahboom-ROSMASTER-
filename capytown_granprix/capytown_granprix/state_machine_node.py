@@ -22,7 +22,7 @@ DETALLE RETO 3.md):
 
     En logica_dos_reglas, cada ``distancia_chequeo_pared_m`` de avance
     en linea recta se pasa por ``PAUSA_CHEQUEO_PARED`` en vez de
-    PAUSA_GIRO: detenido ``tiempo_chequeo_pared_s`` (1s) y verifica con
+    PAUSA_GIRO: detenido ``tiempo_chequeo_pared_s`` (0.5s) y verifica con
     distancia PUNTUAL (no el ajuste de linea) si el lado derecho esta
     ocupado (pared) o vacio antes de comprometerse a girar -- ver
     ``_handle_pausa_chequeo_pared``.
@@ -203,8 +203,8 @@ class StateMachineNode(Node):
             # (PAUSA_CHEQUEO_PARED) tiempo_chequeo_pared_s y verifica
             # con distancia PUNTUAL (no la linea) si el lado seguido
             # esta ocupado o vacio.
-            'distancia_chequeo_pared_m': 0.30,
-            'tiempo_chequeo_pared_s': 1.0,
+            'distancia_chequeo_pared_m': 0.20,
+            'tiempo_chequeo_pared_s': 0.5,
             # "Lado derecho vacio" tiene que sostenerse esta cantidad
             # de ciclos SEGUIDOS (no una sola lectura) antes de
             # comprometerse a girar -- un giro a la derecha es una
@@ -587,7 +587,7 @@ class StateMachineNode(Node):
         self._publish_twist(cmd)
 
     def _handle_pausa_chequeo_pared(self):
-        """Detenido tiempo_chequeo_pared_s (1s) -- ya sea por el
+        """Detenido tiempo_chequeo_pared_s (0.5s) -- ya sea por el
         chequeo PERIODICO (regla 3) o porque se confirmo un obstaculo
         al frente (regla 4, self._chequeo_por_frente=True) -- y RECIEN
         despues verifica con distancia PUNTUAL (no el ajuste de linea)
