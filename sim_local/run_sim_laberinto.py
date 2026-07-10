@@ -483,7 +483,7 @@ def _correr_logica_simple(args):
                         ultima_decision_info = f'lado derecho vacio ({right_d*100:.0f}cm) -> DERECHA'
                         print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
                               f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
-                        estado = 'GIRAR_IZQUIERDA'  # mismo estado, sirve para cualquier direccion
+                        estado = 'GIRAR_DINAMICO'  # mismo estado, sirve para cualquier direccion
                     elif chequeo_por_frente:
                         num_giros += 1
                         direccion_giro = 'IZQUIERDA'
@@ -491,7 +491,7 @@ def _correr_logica_simple(args):
                         ultima_decision_info = 'lado derecho ocupado, frente bloqueado -> IZQUIERDA'
                         print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
                               f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
-                        estado = 'GIRAR_IZQUIERDA'
+                        estado = 'GIRAR_DINAMICO'
                     else:
                         ultima_decision_info = 'lado derecho ocupado -> retoma avance'
                         print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
@@ -499,7 +499,7 @@ def _correr_logica_simple(args):
                         avance_chequeo_inicio_xy = (pose.x, pose.y)
                         estado = 'AVANZAR'
 
-            elif estado == 'GIRAR_IZQUIERDA':
+            elif estado == 'GIRAR_DINAMICO':
                 # Lectura de linea EN VIVO durante el giro (no ciego):
                 # se usa para detectar cuando ya quedo paralelo a la
                 # pared siguiente, en vez de un angulo fijo.
@@ -527,7 +527,7 @@ def _correr_logica_simple(args):
 
             if paso % args.dibujar_cada == 0:
                 _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado,
-                         ultima_decision_info, None, 0, num_giros,
+                         ultima_decision_info, direccion_giro, 0, num_giros,
                          trayectoria_x, trayectoria_y, args, inicio_x, inicio_y, meta_x, meta_y)
                 plt.pause(0.001)
     except KeyboardInterrupt:
@@ -593,8 +593,9 @@ def _descripcion_accion(estado, decision_actual, args):
         return 'Alineando con la pared real (corrigiendo con el LiDAR, S1/S2)'
     if estado == 'AVANZAR':
         return 'Avanzando recto (logica simple)'
-    if estado == 'GIRAR_IZQUIERDA':
-        return f'Obstaculo al frente -> girando IZQUIERDA (objetivo {args.angulo_giro:.0f}°)'
+    if estado == 'GIRAR_DINAMICO':
+        direccion = decision_actual or '?'
+        return f'Girando {direccion} (dinamico, hasta quedar paralelo a la pared siguiente)'
     return estado
 
 
@@ -626,7 +627,7 @@ def _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado, decision_info,
     color_estado = {
         'AVANZAR_PARALELO': 'black', 'PAUSA_GIRO': 'firebrick',
         'GIRAR': 'purple', 'ALINEAR': 'teal',
-        'AVANZAR': 'black', 'GIRAR_IZQUIERDA': 'purple',
+        'AVANZAR': 'black', 'GIRAR_DINAMICO': 'purple',
         'PAUSA_CHEQUEO_PARED': 'firebrick',
     }.get(estado, 'black')
     accion = _descripcion_accion(estado, decision_actual, args)
