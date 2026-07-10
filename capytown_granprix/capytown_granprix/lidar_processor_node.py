@@ -29,6 +29,7 @@ from capytown_granprix.lidar_utils import (
     ZoneWindow,
     compute_robot_frame_angles,
     compute_zone_distance,
+    count_points_in_window,
     fit_wall_line,
 )
 
@@ -54,6 +55,10 @@ class LidarProcessorNode(Node):
         self.declare_parameter('left_window_deg', [70.0, 110.0])
         self.declare_parameter('right_side_window_deg', [-110.0, -70.0])
         self.declare_parameter('min_puntos_linea', 6)
+        # Ventana de ANTICIPACION: porcion mas adelantada de
+        # right_side_window_deg (ver LidarZones.msg::right_ahead_valid).
+        self.declare_parameter('right_ahead_window_deg', [-95.0, -70.0])
+        self.declare_parameter('min_puntos_adelanto', 4)
         self.declare_parameter('outlier_max_iter', 3)
         self.declare_parameter('outlier_residuo_m', 0.03)
 
@@ -73,6 +78,8 @@ class LidarProcessorNode(Node):
         }
         self._right_side_window = ZoneWindow(*self.get_parameter('right_side_window_deg').value)
         self._min_puntos_linea = int(self.get_parameter('min_puntos_linea').value)
+        self._right_ahead_window = ZoneWindow(*self.get_parameter('right_ahead_window_deg').value)
+        self._min_puntos_adelanto = int(self.get_parameter('min_puntos_adelanto').value)
         self._outlier_max_iter = int(self.get_parameter('outlier_max_iter').value)
         self._outlier_residuo_m = float(self.get_parameter('outlier_residuo_m').value)
 
@@ -114,6 +121,11 @@ class LidarProcessorNode(Node):
         out.right_line_angle_rad = angulo
         out.right_line_distance_m = distancia_linea
         out.right_line_valid = valido_linea
+
+        puntos_adelanto = count_points_in_window(
+            ranges, robot_angles, msg.range_min, range_max_use, self._right_ahead_window
+        )
+        out.right_ahead_valid = puntos_adelanto >= self._min_puntos_adelanto
 
         self._pub.publish(out)
 

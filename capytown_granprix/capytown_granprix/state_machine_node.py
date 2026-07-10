@@ -96,7 +96,6 @@ class StateMachineNode(Node):
         self._esperando_obstaculo = False
         self._espera_obstaculo_inicio = None
         self._contador_frente_dos_reglas = 0
-        self._contador_linea_perdida_dos_reglas = 0
         self._yaw_inicio_giro = 0.0
         self._pausa_linea_perdida_start = None
 
@@ -183,12 +182,10 @@ class StateMachineNode(Node):
             # ciclo (100% ruido/transitorio) no alcanza para disparar un
             # giro, tiene que sostenerse.
             'frente_confirmaciones_ciclos': 3,
-            # Ciclos seguidos con right_line_valid=false antes de asumir
-            # que la pared realmente se abrio (esquina concava/hueco a
-            # la derecha) y girar -- igual motivo que frente_confirmaciones_
-            # ciclos: un solo ciclo sin lectura valida puede ser ruido.
-            'linea_perdida_confirmaciones_ciclos': 3,
-            # Una vez confirmada la perdida de la pared derecha, se
+            # Una vez detectada la perdida de la pared derecha
+            # (right_ahead_valid=false, ver lidar_processor -- ventana
+            # de ANTICIPACION, un solo ciclo, sin confirmar varios: se
+            # frena en seco de inmediato apenas se pierde), se
             # detiene por completo este tiempo (PAUSA_LINEA_PERDIDA)
             # antes de verificar si el lado derecho esta REALMENTE
             # libre (z.right puntual, no la linea) y recien ahi girar.
@@ -267,10 +264,8 @@ class StateMachineNode(Node):
         self._ganancia_distancia_recta = float(g('ganancia_distancia_recta'))
         self._angular_max_recta = float(g('angular_max_recta_radps'))
         self._frente_confirmaciones_ciclos = int(g('frente_confirmaciones_ciclos'))
-        self._linea_perdida_confirmaciones_ciclos = int(g('linea_perdida_confirmaciones_ciclos'))
         self._tiempo_verificar_hueco = float(g('tiempo_verificar_hueco_s'))
         self._contador_frente_dos_reglas = 0
-        self._contador_linea_perdida_dos_reglas = 0
         self._angulo_minimo_giro_rad = math.radians(float(g('angulo_minimo_giro_deg')))
         self._angulo_maximo_giro_rad = math.radians(float(g('angulo_maximo_giro_deg')))
 
@@ -448,14 +443,15 @@ class StateMachineNode(Node):
            distancia_objetivo_m) -- distingue una pared vista en
            diagonal (se corrige el angulo) de un obstaculo nuevo (no
            encaja como continuacion de esa recta).
-        3. Si se PIERDE la pared derecha (right_line_valid=false)
-           sostenido durante linea_perdida_confirmaciones_ciclos
-           seguidos (no un solo vistazo), es que la pared se abrio
-           (esquina concava / hueco a la derecha) -- girar 90 grados
-           DINAMICO a la DERECHA (mismo mecanismo de la regla 4:
-           sigue girando hasta quedar paralelo a la pared siguiente)
-           y retomar. Mientras no se confirme, sigue avanzando recto
-           sin corregir nada (podria ser solo un vistazo de un ciclo).
+        3. Si se PIERDE la ventana de ANTICIPACION (right_ahead_valid=
+           false -- porcion mas adelantada de right_side_window_deg,
+           ver LidarZones.msg), se frena EN SECO de inmediato (un solo
+           ciclo, sin confirmar varios: esta ventana mira mas hacia
+           adelante que right_line_*, por lo que ya adelanta la
+           perdida antes de que la ventana principal tambien la
+           pierda) y pasa a PAUSA_LINEA_PERDIDA a verificar si es un
+           hueco real antes de girar 90 grados DINAMICO a la DERECHA
+           (mismo mecanismo de la regla 4).
         4. Si hay obstaculo al frente (front_narrow, cono angosto)
            sostenido durante frente_confirmaciones_ciclos seguidos,
            girar 90 grados DINAMICO a la IZQUIERDA (ignora derecha/
@@ -475,7 +471,6 @@ class StateMachineNode(Node):
 
         if self._contador_frente_dos_reglas >= self._frente_confirmaciones_ciclos:
             self._contador_frente_dos_reglas = 0
-            self._contador_linea_perdida_dos_reglas = 0
             self._decision_actual = 'IZQUIERDA'
             self._yaw_inicio_giro = self._yaw
             self._publish_event(
@@ -486,13 +481,10 @@ class StateMachineNode(Node):
             self._set_state('PAUSA_GIRO')
             return
 
-        linea_perdida_1_ciclo = not z.right_line_valid
-        self._contador_linea_perdida_dos_reglas = (
-            self._contador_linea_perdida_dos_reglas + 1 if linea_perdida_1_ciclo else 0
-        )
-
-        if self._contador_linea_perdida_dos_reglas >= self._linea_perdida_confirmaciones_ciclos:
-            self._contador_linea_perdida_dos_reglas = 0
+        if not z.right_ahead_valid:
+            # Ventana de ANTICIPACION perdida: frenar EN SECO de
+            # inmediato, un solo ciclo, sin esperar confirmacion de
+            # varios (ver right_ahead_valid en LidarZones.msg).
             self._publish_event(EV.GIRO, 'perdio la pared derecha -> detenido a verificar')
             self._publish_twist(Twist())
             self._pausa_linea_perdida_start = self.get_clock().now()

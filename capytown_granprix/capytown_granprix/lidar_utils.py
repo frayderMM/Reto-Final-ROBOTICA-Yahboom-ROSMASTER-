@@ -111,6 +111,32 @@ def compute_all_zones(
     return result
 
 
+def count_points_in_window(
+    ranges: np.ndarray,
+    robot_angles: np.ndarray,
+    range_min: float,
+    range_max: float,
+    window: ZoneWindow,
+) -> int:
+    """Cuenta cuantos puntos del LiDAR caen dentro de ``window`` (mismo
+    criterio de validez que ``fit_wall_line``: finito y dentro de
+    rango). Usado por la ventana de ANTICIPACION: no se ajusta una
+    recta, solo se cuenta, porque lo unico que importa es "todavia hay
+    pared ahi" o no.
+    """
+    lo = math.radians(window.lo_deg)
+    hi = math.radians(window.hi_deg)
+
+    if lo <= hi:
+        in_window = (robot_angles >= lo) & (robot_angles <= hi)
+    else:
+        in_window = (robot_angles >= lo) | (robot_angles <= hi)
+
+    finite = np.isfinite(ranges)
+    in_range = (ranges >= range_min) & (ranges <= range_max)
+    return int(np.sum(in_window & finite & in_range))
+
+
 def fit_wall_line(
     ranges: np.ndarray,
     robot_angles: np.ndarray,

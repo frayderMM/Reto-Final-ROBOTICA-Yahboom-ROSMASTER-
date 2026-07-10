@@ -51,6 +51,8 @@ VENT_FRONT_ESTRECHO = (-8.0, 8.0)  # cono mas angosto para logica simple: evita 
 VENT_LEFT = (70.0, 110.0)
 VENT_RIGHT_FRONT = (-75.0, -45.0)   # S1, usado por ALINEAR
 VENT_RIGHT_REAR = (-135.0, -105.0)  # S2, usado por ALINEAR
+VENT_LINEA_ADELANTO = (-95.0, -70.0)  # ANTICIPACION: porcion mas adelantada de VENT_LINEA,
+                                       # ver right_ahead_valid en lidar_processor_node.py
 
 INICIO_THETA = -math.pi / 2.0  # mirando hacia el "norte" (Y decreciente), hacia A3/A2/A1
 
@@ -111,10 +113,12 @@ def parse_args():
                     help='solo --logica simple: ciclos seguidos con el frente bloqueado antes '
                          'de girar (evita que un vistazo diagonal de un solo ciclo dispare un '
                          'giro innecesario)')
-    p.add_argument('--linea-perdida-confirmaciones', type=int, default=3,
-                    help='solo --logica simple: ciclos seguidos SIN ajuste de linea valido '
-                         'antes de asumir que la pared se abrio (esquina concava/hueco a la '
-                         'derecha) y girar a la derecha')
+    p.add_argument('--min-puntos-adelanto', type=int, default=4,
+                    help='solo --logica simple: puntos minimos en VENT_LINEA_ADELANTO (ventana '
+                         'de ANTICIPACION, mas adelantada que VENT_LINEA) para considerarla '
+                         'valida -- por debajo, se frena en seco de inmediato (un solo ciclo, '
+                         'sin confirmar varios) asumiendo que la pared se abrio (esquina '
+                         'concava/hueco a la derecha)')
     p.add_argument('--tiempo-verificar-hueco', type=float, default=2.0,
                     help='solo --logica simple: al confirmar perdida de la pared derecha, se '
                          'detiene este tiempo (s) y RECIEN despues verifica con distancia '
@@ -140,6 +144,19 @@ def zona_min(angulos, rangos, ventana_deg, range_min=RANGE_MIN, range_max=RANGE_
     if not np.any(mask):
         return float('inf'), False
     return float(np.min(rangos[mask])), True
+
+
+def contar_puntos_ventana(angulos, rangos, ventana_deg, range_min=RANGE_MIN, range_max=RANGE_MAX):
+    """Cuenta puntos en la ventana, sin ajuste de recta -- usado por la
+    ventana de ANTICIPACION (VENT_LINEA_ADELANTO), donde solo importa
+    "todavia hay pared ahi" o no."""
+    lo, hi = math.radians(ventana_deg[0]), math.radians(ventana_deg[1])
+    if lo <= hi:
+        mask = (angulos >= lo) & (angulos <= hi)
+    else:
+        mask = (angulos >= lo) | (angulos <= hi)
+    mask &= np.isfinite(rangos) & (rangos >= range_min) & (rangos <= range_max)
+    return int(np.sum(mask))
 
 
 def main():
@@ -327,16 +344,17 @@ def _correr_logica_simple(args):
     2. Si hay ajuste de linea valido de la pared derecha, corregir con
        Kp (angulo + distancia hacia --distancia-objetivo) para
        mantenerse paralelo y cerca.
-    3. Si se PIERDE la pared derecha (sin ajuste valido) sostenido
-       durante --linea-perdida-confirmaciones ciclos seguidos (no un
-       solo vistazo), se detiene por completo (PAUSA_LINEA_PERDIDA)
-       durante --tiempo-verificar-hueco (2s) y RECIEN despues verifica
-       con distancia puntual (no la linea) si el lado derecho esta
-       realmente libre -- evita girar hacia un "hueco" que en realidad
-       es algo demasiado cerca para que el LiDAR lo mida (que se ve
-       igual que "sin pared" en el ajuste de linea). Si esta libre,
-       gira a la DERECHA; si no, retoma AVANZAR. Mientras no se
-       confirme la perdida, sigue avanzando recto sin corregir nada.
+    3. Si se PIERDE la ventana de ANTICIPACION (VENT_LINEA_ADELANTO,
+       porcion mas adelantada de VENT_LINEA -- ver --min-puntos-
+       adelanto), se frena EN SECO de inmediato (un solo ciclo, sin
+       confirmar varios: esta ventana mira mas hacia adelante, asi que
+       adelanta la perdida antes que VENT_LINEA) y se detiene por
+       completo (PAUSA_LINEA_PERDIDA) durante --tiempo-verificar-hueco
+       (2s). RECIEN despues verifica con distancia puntual (no la
+       linea) si el lado derecho esta realmente libre -- evita girar
+       hacia un "hueco" que en realidad es algo demasiado cerca para
+       que el LiDAR lo mida (que se ve igual que "sin pared"). Si esta
+       libre, gira a la DERECHA; si no, retoma AVANZAR.
     4. Si detecta un obstaculo al frente (cono angosto, ver
        VENT_FRONT_ESTRECHO) sostenido durante --frente-confirmaciones
        ciclos seguidos, girar a la IZQUIERDA.
@@ -372,7 +390,6 @@ def _correr_logica_simple(args):
     ultima_decision_info = ''
     num_giros = 0
     contador_frente = 0
-    contador_linea_perdida = 0
     pausa_linea_perdida_inicio = None
 
     trayectoria_x, trayectoria_y = [pose.x], [pose.y]
@@ -400,7 +417,6 @@ def _correr_logica_simple(args):
                 if frente_bloqueado:
                     num_giros += 1
                     contador_frente = 0
-                    contador_linea_perdida = 0
                     direccion_giro = 'IZQUIERDA'
                     yaw_inicio_giro = pose.theta
                     ultima_decision_info = f'obstaculo al frente ({front_d*100:.0f}cm) -> IZQUIERDA'
@@ -409,33 +425,32 @@ def _correr_logica_simple(args):
                     estado = 'GIRAR_IZQUIERDA'
                     ajuste = None
                 else:
-                    ajuste = ajustar_linea_pared(angulos, rangos, *VENT_LINEA,
-                                                  range_min=RANGE_MIN, range_max=RANGE_MAX, min_puntos=6)
+                    puntos_adelanto = contar_puntos_ventana(angulos, rangos, VENT_LINEA_ADELANTO)
+                    ventana_adelanto_perdida = puntos_adelanto < args.min_puntos_adelanto
 
-                    linea_perdida_1_ciclo = ajuste is None
-                    contador_linea_perdida = (
-                        contador_linea_perdida + 1 if linea_perdida_1_ciclo else 0
-                    )
-                    linea_perdida_confirmada = contador_linea_perdida >= args.linea_perdida_confirmaciones
-
-                    if linea_perdida_confirmada:
-                        contador_linea_perdida = 0
+                    if ventana_adelanto_perdida:
+                        # Ventana de ANTICIPACION perdida: frenar EN
+                        # SECO de inmediato, un solo ciclo, sin
+                        # confirmar varios (mira mas adelante que
+                        # VENT_LINEA, asi que adelanta la perdida).
                         ultima_decision_info = 'perdio la pared derecha -> detenido a verificar'
                         print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
                               f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
                         pausa_linea_perdida_inicio = paso
                         estado = 'PAUSA_LINEA_PERDIDA'
                         ajuste = None
-                    elif ajuste is None:
-                        # Perdida no confirmada todavia: avanzar recto, sin corregir nada.
-                        w = 0.0
-                        pose = integrar(pose, args.velocidad, w, DT)
                     else:
-                        error_distancia = args.distancia_objetivo - ajuste.distancia_m
-                        correccion = (args.ganancia_angulo * ajuste.angulo_rad
-                                      + args.ganancia_distancia * error_distancia)
-                        w = max(-args.angular_max, min(args.angular_max, correccion))
-                        pose = integrar(pose, args.velocidad, w, DT)
+                        ajuste = ajustar_linea_pared(angulos, rangos, *VENT_LINEA,
+                                                      range_min=RANGE_MIN, range_max=RANGE_MAX, min_puntos=6)
+                        if ajuste is None:
+                            w = 0.0
+                            pose = integrar(pose, args.velocidad, w, DT)
+                        else:
+                            error_distancia = args.distancia_objetivo - ajuste.distancia_m
+                            correccion = (args.ganancia_angulo * ajuste.angulo_rad
+                                          + args.ganancia_distancia * error_distancia)
+                            w = max(-args.angular_max, min(args.angular_max, correccion))
+                            pose = integrar(pose, args.velocidad, w, DT)
 
             elif estado == 'PAUSA_LINEA_PERDIDA':
                 # Detenido --tiempo-verificar-hueco (2s) apenas se
