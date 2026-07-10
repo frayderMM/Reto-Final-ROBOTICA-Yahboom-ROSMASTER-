@@ -199,9 +199,9 @@ state_machine:
     # "Ocupado" no necesita esto (el peor caso es seguir derecho un
     # poco mas).
     chequeo_pared_confirmaciones_ciclos: 5
-    # Giro dinamico: resguardo minimo (no confundir con la pared vieja)
-    # y tope maximo de seguridad (si nunca encuentra pared paralela).
-    angulo_minimo_giro_deg: 45.0
+    # Giro de logica_dos_reglas: cierra el lazo por odometria contra
+    # angulo_giro_deg (90, ver abajo) -- fijo y exacto. Este es el tope
+    # de seguridad adicional (por si el odometro se traba).
     angulo_maximo_giro_deg: 150.0
 
     # --- Correccion de escala del odometro (calibrado en pista) ---
