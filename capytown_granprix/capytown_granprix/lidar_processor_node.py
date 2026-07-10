@@ -47,7 +47,7 @@ class LidarProcessorNode(Node):
         # Cono angosto, solo para logica_dos_reglas (state_machine_node):
         # el cono ancho de front_window_deg puede agarrar una pared lateral
         # vista en diagonal y confundirla con un obstaculo real al frente.
-        self.declare_parameter('front_narrow_window_deg', [-8.0, 8.0])
+        self.declare_parameter('front_narrow_window_deg', [-5.0, 5.0])
         self.declare_parameter('right_front_window_deg', [-75.0, -45.0])
         self.declare_parameter('right_window_deg', [-110.0, -70.0])
         self.declare_parameter('right_rear_window_deg', [-135.0, -105.0])

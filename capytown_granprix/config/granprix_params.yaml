@@ -40,8 +40,9 @@ lidar_processor:
     front_window_deg: [-15.0, 15.0]
     # Cono angosto solo para logica_dos_reglas (state_machine_node):
     # con -15/15 una pared lateral vista en diagonal puede entrar en el
-    # cono y confundirse con un obstaculo real al frente.
-    front_narrow_window_deg: [-8.0, 8.0]
+    # cono y confundirse con un obstaculo real al frente. Reducido de
+    # -8/8 a -5/5 (16 a 10 grados de ancho) para acotar aun mas.
+    front_narrow_window_deg: [-5.0, 5.0]
     right_front_window_deg: [-75.0, -45.0]   # S1 (usado por ALINEAR)
     right_window_deg: [-110.0, -70.0]
     right_rear_window_deg: [-135.0, -105.0]  # S2 (usado por ALINEAR)
