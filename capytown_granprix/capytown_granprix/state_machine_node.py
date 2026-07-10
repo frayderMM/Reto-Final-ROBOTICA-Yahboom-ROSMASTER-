@@ -100,6 +100,7 @@ class StateMachineNode(Node):
         self._contador_frente_dos_reglas = 0
         self._yaw_inicio_giro = 0.0
         self._pausa_chequeo_start = None
+        self._contador_derecha_libre = 0
         self._chequeo_por_frente = False
 
         self._STATE_HANDLERS = {
@@ -194,6 +195,11 @@ class StateMachineNode(Node):
             # linea) si el lado derecho esta ocupado o vacio.
             'distancia_chequeo_pared_m': 0.30,
             'tiempo_chequeo_pared_s': 1.0,
+            # "Lado derecho vacio" tiene que sostenerse esta cantidad
+            # de ciclos SEGUIDOS (no una sola lectura) antes de
+            # comprometerse a girar -- un giro a la derecha es una
+            # decision cara de revertir. "Ocupado" no necesita esto.
+            'chequeo_pared_confirmaciones_ciclos': 5,
             # Giro DINAMICO de logica_dos_reglas: no gira a angulo_giro_deg
             # fijo -- gira hasta quedar paralelo a la pared siguiente
             # (right_line_angle_rad ~0, con tolerancia_giro_deg), leyendo
@@ -269,6 +275,7 @@ class StateMachineNode(Node):
         self._angular_max_recta = float(g('angular_max_recta_radps'))
         self._frente_confirmaciones_ciclos = int(g('frente_confirmaciones_ciclos'))
         self._distancia_chequeo_pared = float(g('distancia_chequeo_pared_m'))
+        self._chequeo_pared_confirmaciones_ciclos = int(g('chequeo_pared_confirmaciones_ciclos'))
         self._tiempo_chequeo_pared = float(g('tiempo_chequeo_pared_s'))
         self._contador_frente_dos_reglas = 0
         self._angulo_minimo_giro_rad = math.radians(float(g('angulo_minimo_giro_deg')))
@@ -543,7 +550,14 @@ class StateMachineNode(Node):
             lugar).
           - Si vino de un obstaculo al frente (regla 4): NO puede
             simplemente retomar el avance (el frente sigue bloqueado)
-            -- gira a la IZQUIERDA."""
+            -- gira a la IZQUIERDA.
+
+        "Vacio" se confirma con chequeo_pared_confirmaciones_ciclos
+        lecturas SEGUIDAS (no una sola) -- un giro a la derecha es
+        una decision cara de revertir, asi que se exige sostener el
+        "vacio" varios ciclos (sigue detenido mientras confirma) antes
+        de comprometerse. "Ocupado" no necesita esta confirmacion (el
+        peor caso es solo seguir derecho un poco mas)."""
         self._publish_twist(Twist())
         elapsed = (self.get_clock().now() - self._pausa_chequeo_start).nanoseconds / 1e9
         if elapsed < self._tiempo_chequeo_pared:
@@ -553,11 +567,17 @@ class StateMachineNode(Node):
         derecha_libre = bool(z.right_valid and z.right > self._umbral_lado_libre)
 
         if derecha_libre:
+            self._contador_derecha_libre += 1
+            if self._contador_derecha_libre < self._chequeo_pared_confirmaciones_ciclos:
+                return
+            self._contador_derecha_libre = 0
             self._decision_actual = 'DERECHA'
             self._yaw_inicio_giro = self._yaw
             self._publish_event(EV.GIRO, f'lado derecho vacio ({z.right:.2f}m) -> DERECHA')
             self._set_state('GIRAR')
             return
+
+        self._contador_derecha_libre = 0
 
         if self._chequeo_por_frente:
             self._decision_actual = 'IZQUIERDA'
@@ -820,9 +840,13 @@ class StateMachineNode(Node):
         self.get_logger().info(f'[{tipo}] {detalle}')
 
     def _set_state(self, new_state: str):
-        if new_state != self._state:
-            self.get_logger().info(f'estado: {self._state} -> {new_state}')
-            self._state = new_state
+        # Sin log de consola aqui a proposito -- cada transicion
+        # relevante ya imprime una sola linea con el detalle via
+        # _publish_event (o get_logger().info directo en GIRO
+        # TERMINADO), asi que loguear tambien la transicion de estado
+        # en si duplicaba la info. El topico /robot_state (para otros
+        # nodos/herramientas) se sigue publicando igual.
+        self._state = new_state
         self._state_pub.publish(String(data=self._state))
 
 

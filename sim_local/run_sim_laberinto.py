@@ -124,6 +124,10 @@ def parse_args():
                          'detiene este tiempo (s) y RECIEN despues verifica con distancia '
                          'puntual (no la linea) si el lado derecho esta ocupado o vacio -- si '
                          'esta vacio, gira a la derecha; si esta ocupado, retoma el avance')
+    p.add_argument('--chequeo-pared-confirmaciones', type=int, default=5,
+                    help='solo --logica simple: "lado derecho vacio" tiene que sostenerse esta '
+                         'cantidad de ciclos SEGUIDOS (no una sola lectura) antes de '
+                         'comprometerse a girar a la derecha -- "ocupado" no necesita esto')
     p.add_argument('--angulo-minimo-giro', type=float, default=45.0,
                     help='giro DINAMICO: grados minimos (por odometria, solo de resguardo) '
                          'antes de poder detectar "ya quedo paralelo" y parar')
@@ -393,6 +397,7 @@ def _correr_logica_simple(args):
     contador_frente = 0
     pausa_chequeo_inicio = None
     chequeo_por_frente = False
+    contador_derecha_libre = 0
     avance_chequeo_inicio_xy = (pose.x, pose.y)
 
     trayectoria_x, trayectoria_y = [pose.x], [pose.y]
@@ -479,27 +484,38 @@ def _correr_logica_simple(args):
                     right_d, right_v = zona_min(angulos, rangos, VENT_LINEA)
                     derecha_libre = right_v and right_d > args.umbral_lado_libre
                     if derecha_libre:
-                        num_giros += 1
-                        direccion_giro = 'DERECHA'
-                        yaw_inicio_giro = pose.theta
-                        ultima_decision_info = f'lado derecho vacio ({right_d*100:.0f}cm) -> DERECHA'
-                        print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
-                              f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
-                        estado = 'GIRAR_DINAMICO'  # mismo estado, sirve para cualquier direccion
-                    elif chequeo_por_frente:
-                        num_giros += 1
-                        direccion_giro = 'IZQUIERDA'
-                        yaw_inicio_giro = pose.theta
-                        ultima_decision_info = 'lado derecho ocupado, frente bloqueado -> IZQUIERDA'
-                        print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
-                              f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
-                        estado = 'GIRAR_DINAMICO'
+                        # "Vacio" tiene que sostenerse varios ciclos
+                        # SEGUIDOS (no una sola lectura) antes de
+                        # comprometerse a girar -- un giro a la
+                        # derecha es caro de revertir.
+                        contador_derecha_libre += 1
+                        if contador_derecha_libre < args.chequeo_pared_confirmaciones:
+                            pass  # sigue detenido, revisa de nuevo el proximo ciclo
+                        else:
+                            contador_derecha_libre = 0
+                            num_giros += 1
+                            direccion_giro = 'DERECHA'
+                            yaw_inicio_giro = pose.theta
+                            ultima_decision_info = f'lado derecho vacio ({right_d*100:.0f}cm) -> DERECHA'
+                            print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
+                                  f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
+                            estado = 'GIRAR_DINAMICO'  # mismo estado, sirve para cualquier direccion
                     else:
-                        ultima_decision_info = 'lado derecho ocupado -> retoma avance'
-                        print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
-                              f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
-                        avance_chequeo_inicio_xy = (pose.x, pose.y)
-                        estado = 'AVANZAR'
+                        contador_derecha_libre = 0
+                        if chequeo_por_frente:
+                            num_giros += 1
+                            direccion_giro = 'IZQUIERDA'
+                            yaw_inicio_giro = pose.theta
+                            ultima_decision_info = 'lado derecho ocupado, frente bloqueado -> IZQUIERDA'
+                            print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
+                                  f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
+                            estado = 'GIRAR_DINAMICO'
+                        else:
+                            ultima_decision_info = 'lado derecho ocupado -> retoma avance'
+                            print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
+                                  f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
+                            avance_chequeo_inicio_xy = (pose.x, pose.y)
+                            estado = 'AVANZAR'
 
             elif estado == 'GIRAR_DINAMICO':
                 # Lectura de linea EN VIVO durante el giro (no ciego):

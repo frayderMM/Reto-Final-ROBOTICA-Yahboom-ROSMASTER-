@@ -180,6 +180,12 @@ state_machine:
     # PAUSA_CHEQUEO_PARED en state_machine_node.py.
     distancia_chequeo_pared_m: 0.30
     tiempo_chequeo_pared_s: 1.0
+    # "Lado derecho vacio" tiene que sostenerse esta cantidad de
+    # ciclos SEGUIDOS (no una sola lectura) antes de comprometerse a
+    # girar -- un giro a la derecha es una decision cara de revertir.
+    # "Ocupado" no necesita esto (el peor caso es seguir derecho un
+    # poco mas).
+    chequeo_pared_confirmaciones_ciclos: 5
     # Giro dinamico: resguardo minimo (no confundir con la pared vieja)
     # y tope maximo de seguridad (si nunca encuentra pared paralela).
     angulo_minimo_giro_deg: 45.0
