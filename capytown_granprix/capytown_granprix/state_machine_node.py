@@ -112,6 +112,7 @@ class StateMachineNode(Node):
             'PAUSA_GIRO': self._handle_pausa_giro,
             'PAUSA_CHEQUEO_PARED': self._handle_pausa_chequeo_pared,
             'GIRAR': self._handle_girar,
+            'GIRAR_VACIO': self._handle_girar_vacio,
             'ALINEAR': self._handle_alinear,
             'VERIFICAR_META': self._handle_verificar_meta,
             'META': self._handle_meta,
@@ -209,6 +210,17 @@ class StateMachineNode(Node):
             # giro_deg es tope de seguridad si nunca encuentra pared.
             'angulo_minimo_giro_deg': 45.0,
             'angulo_maximo_giro_deg': 150.0,
+            # Giro EN U de la regla 3 (right_valid vacio -> DERECHA,
+            # ver GIRAR_VACIO): a diferencia del giro de esquina de
+            # arriba (que busca quedar PARALELO a una pared), este
+            # avanza girando a la derecha hasta volver a encontrar
+            # FISICAMENTE una pared cerca (z.right <= umbral_lado_
+            # libre_m), no hasta un angulo particular -- puede
+            # necesitar girar mucho mas que una esquina normal (un
+            # hueco puede ser un espacio bastante abierto). Tope de
+            # seguridad generoso (360, una vuelta completa) para no
+            # girar para siempre si nunca encuentra pared.
+            'angulo_maximo_giro_vacio_deg': 360.0,
             'umbral_frente_pared_m': 0.25,
             'umbral_frente_libre_m': 0.35,
             'umbral_lado_libre_m': 0.40,
@@ -280,6 +292,7 @@ class StateMachineNode(Node):
         self._contador_frente_dos_reglas = 0
         self._angulo_minimo_giro_rad = math.radians(float(g('angulo_minimo_giro_deg')))
         self._angulo_maximo_giro_rad = math.radians(float(g('angulo_maximo_giro_deg')))
+        self._angulo_maximo_giro_vacio_rad = math.radians(float(g('angulo_maximo_giro_vacio_deg')))
 
         self._umbral_frente_pared = float(g('umbral_frente_pared_m'))
         self._umbral_frente_libre = float(g('umbral_frente_libre_m'))
@@ -464,10 +477,13 @@ class StateMachineNode(Node):
            _avance_chequeo_start_xy), se detiene por completo y pasa a
            PAUSA_CHEQUEO_PARED, que verifica con distancia PUNTUAL
            (z.right, no la linea) si el lado derecho esta ocupado o
-           vacio -- si esta vacio, gira 90 grados DINAMICO a la
-           DERECHA (mismo mecanismo de la regla 4); si esta ocupado,
-           retoma el avance reiniciando el contador de distancia desde
-           ahi (evita reintentar en el mismo lugar).
+           vacio ("vacio" exige chequeo_pared_confirmaciones_ciclos
+           lecturas seguidas) -- si esta vacio, gira EN U a la DERECHA
+           (GIRAR_VACIO, ver _handle_girar_vacio: no busca un angulo
+           particular, avanza girando hasta volver a encontrar
+           fisicamente una pared cerca); si esta ocupado, retoma el
+           avance reiniciando el contador de distancia desde ahi
+           (evita reintentar en el mismo lugar).
         4. Si hay obstaculo al frente (front_narrow, cono angosto)
            sostenido durante frente_confirmaciones_ciclos seguidos, se
            detiene EN SECO y pasa por el mismo PAUSA_CHEQUEO_PARED de
@@ -573,8 +589,8 @@ class StateMachineNode(Node):
             self._contador_derecha_libre = 0
             self._decision_actual = 'DERECHA'
             self._yaw_inicio_giro = self._yaw
-            self._publish_event(EV.GIRO, f'lado derecho vacio ({z.right:.2f}m) -> DERECHA')
-            self._set_state('GIRAR')
+            self._publish_event(EV.GIRO, f'lado derecho vacio ({z.right:.2f}m) -> DERECHA (giro en U)')
+            self._set_state('GIRAR_VACIO')
             return
 
         self._contador_derecha_libre = 0
@@ -779,6 +795,50 @@ class StateMachineNode(Node):
         cmd = Twist()
         cmd.linear.x = self._v_giro_lineal
         cmd.angular.z = self._v_giro_angular if self._decision_actual == 'IZQUIERDA' else -self._v_giro_angular
+        self._publish_twist(cmd)
+
+    def _handle_girar_vacio(self):
+        """Giro EN U tras detectar hueco a la derecha (regla 3, lado
+        derecho vacio). A diferencia de _handle_girar_dinamico (giro
+        de esquina, que busca quedar PARALELO a la pared siguiente),
+        este NO busca un angulo particular -- sigue avanzando en arco
+        hacia la derecha hasta volver a encontrar FISICAMENTE una
+        pared cerca (z.right <= umbral_lado_libre_m), que puede
+        requerir girar bastante mas que una esquina normal si el hueco
+        es un espacio abierto. angulo_minimo_giro_deg (mismo que el
+        giro de esquina) evita confundir la pared VIEJA que se acaba
+        de dejar con la pared nueva encontrada. angulo_maximo_giro_
+        vacio_deg (360, una vuelta completa) es el tope de seguridad
+        si nunca encuentra pared."""
+        z = self._zones
+        angulo_girado = abs(angle_diff(self._yaw, self._yaw_inicio_giro))
+
+        if angulo_girado >= self._angulo_minimo_giro_rad:
+            if z.right_valid and z.right <= self._umbral_lado_libre:
+                self._publish_twist(Twist())
+                self._grid.apply_turn(self._decision_actual)
+                self.get_logger().info(
+                    f'GIRO TERMINADO (pared encontrada a {z.right:.2f}m): '
+                    f'girado={math.degrees(angulo_girado):.0f} deg'
+                )
+                self._begin_avanzar_paralelo()
+                self._set_state('AVANZAR_PARALELO')
+                return
+
+        if angulo_girado >= self._angulo_maximo_giro_vacio_rad:
+            self._publish_twist(Twist())
+            self._grid.apply_turn(self._decision_actual)
+            self.get_logger().info(
+                f'GIRO TERMINADO (tope de seguridad 360, sin pared encontrada): '
+                f'girado={math.degrees(angulo_girado):.0f} deg'
+            )
+            self._begin_avanzar_paralelo()
+            self._set_state('AVANZAR_PARALELO')
+            return
+
+        cmd = Twist()
+        cmd.linear.x = self._v_giro_lineal
+        cmd.angular.z = -self._v_giro_angular  # derecha
         self._publish_twist(cmd)
 
     def _handle_alinear(self):
