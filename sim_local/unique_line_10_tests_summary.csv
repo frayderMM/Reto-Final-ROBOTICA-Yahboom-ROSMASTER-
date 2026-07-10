@@ -6,6 +6,6 @@ prueba,distancia_inicial_m,ruido,resultado,razon,estado_final,angulo_final_deg,x
 5,0.16,False,SUCCESS,meta alcanzada tras el giro final,FOLLOW_WALL,87.96,7.456,0.458,0.1025,False,2355,117.75
 6,0.18,False,SUCCESS,meta alcanzada tras el giro final,FOLLOW_WALL,87.91,7.455,0.458,0.102,False,2396,119.8
 7,0.2,True,SUCCESS,meta alcanzada tras el giro final,FOLLOW_WALL,88.02,7.457,0.456,0.0871,False,2365,118.25
-8,0.24,True,SUCCESS,meta alcanzada tras el giro final,FOLLOW_WALL,87.92,7.455,0.452,0.0769,False,2407,120.35
+8,0.24,True,SUCCESS,meta alcanzada tras el giro final,FOLLOW_WALL,87.86,7.454,0.455,0.0769,False,2409,120.45
 9,0.28,True,SUCCESS,meta alcanzada tras el giro final,FOLLOW_WALL,87.92,7.455,0.454,0.0858,False,2390,119.5
 10,0.32,True,SUCCESS,meta alcanzada tras el giro final,FOLLOW_WALL,87.9,7.455,0.456,0.0763,False,2380,119.0

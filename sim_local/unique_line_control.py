@@ -406,7 +406,14 @@ class UniqueLineFSM:
                 self._transition('CORNER_ALIGN')
                 return 0.0, 0.0
         else:
-            self.align_count = 0
+            # Decrementar (no resetear a 0): girando rapido, la ventana
+            # de tolerancia (14 grados) se cruza en pocos ciclos -- una
+            # sola lectura ruidosa justo apenas afuera del rango en
+            # medio del cruce no debe borrar todo el progreso previo, o
+            # el robot pierde la ventana entera y sigue girando hasta
+            # la vuelta siguiente (encontrado en pista real: giro de
+            # 360+90 grados en vez de 90).
+            self.align_count = max(0, self.align_count - 1)
 
         return v, w
 
@@ -451,7 +458,7 @@ class UniqueLineFSM:
                 self._transition('CORNER_ALIGN')
                 return 0.0, 0.0
         else:
-            self.align_count = 0
+            self.align_count = max(0, self.align_count - 1)
 
         return v, w
 
@@ -488,7 +495,10 @@ class UniqueLineFSM:
                     self._transition('FOLLOW_WALL')
                     return 0.0, 0.0
             else:
-                self.stable_count = 0
+                # Mismo criterio "con memoria" que align_count arriba:
+                # una lectura aislada fuera de tolerancia no debe borrar
+                # la estabilidad ya acumulada.
+                self.stable_count = max(0, self.stable_count - 1)
         else:
             self.stable_count = 0
             v = cfg.v_align

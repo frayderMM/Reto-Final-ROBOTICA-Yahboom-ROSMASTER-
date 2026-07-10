@@ -19,7 +19,7 @@ Polilinea de una sola pared (ver `POINTS` en `unique_line_simulator.py`), con un
 | 5 | 0.16 | no | SUCCESS | FOLLOW_WALL | 87.96 | 0.1025 | 2355 | 117.8 |
 | 6 | 0.18 | no | SUCCESS | FOLLOW_WALL | 87.91 | 0.1020 | 2396 | 119.8 |
 | 7 | 0.20 | si | SUCCESS | FOLLOW_WALL | 88.02 | 0.0871 | 2365 | 118.2 |
-| 8 | 0.24 | si | SUCCESS | FOLLOW_WALL | 87.92 | 0.0769 | 2407 | 120.3 |
+| 8 | 0.24 | si | SUCCESS | FOLLOW_WALL | 87.86 | 0.0769 | 2409 | 120.5 |
 | 9 | 0.28 | si | SUCCESS | FOLLOW_WALL | 87.92 | 0.0858 | 2390 | 119.5 |
 | 10 | 0.32 | si | SUCCESS | FOLLOW_WALL | 87.90 | 0.0763 | 2380 | 119.0 |
 

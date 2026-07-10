@@ -338,7 +338,12 @@ class UniqueLineFSM:
                 self._transition('CORNER_ALIGN')
                 return 0.0, 0.0
         else:
-            self.align_count = 0
+            # Decrementar (no resetear a 0): girando rapido, la ventana
+            # de tolerancia se cruza en pocos ciclos -- una sola lectura
+            # ruidosa apenas afuera del rango no debe borrar todo el
+            # progreso previo (encontrado en pista real: giro de 360+90
+            # grados en vez de 90 por esto).
+            self.align_count = max(0, self.align_count - 1)
 
         return v, w
 
@@ -376,7 +381,7 @@ class UniqueLineFSM:
                 self._transition('CORNER_ALIGN')
                 return 0.0, 0.0
         else:
-            self.align_count = 0
+            self.align_count = max(0, self.align_count - 1)
 
         return v, w
 
@@ -408,7 +413,7 @@ class UniqueLineFSM:
                     self._transition('FOLLOW_WALL')
                     return 0.0, 0.0
             else:
-                self.stable_count = 0
+                self.stable_count = max(0, self.stable_count - 1)
         else:
             self.stable_count = 0
             v = cfg.v_align
