@@ -222,12 +222,14 @@ class UniqueLineFSM:
 
         self._check_emergency_entry()
 
-        v, w = 0.0, 0.0
-        for _ in range(4):
-            prev_state = self.state
-            v, w = self._STATE_HANDLERS[self.state]()
-            if self.state == prev_state:
-                break
+        # Un solo despacho por ciclo externo -- encadenar transiciones
+        # dentro del mismo ciclo dejaba que un estado recien entrado
+        # reevaluara la MISMA lectura ya usada por el estado anterior
+        # para decidir la transicion (encontrado en pista real: le
+        # "regalaba" a CORNER_ALIGN una confirmacion de frente-bloqueado
+        # gratis justo al terminar un giro, disparando 2-3 giros de 90
+        # grados seguidos en la misma esquina en vez de uno solo).
+        v, w = self._STATE_HANDLERS[self.state]()
         return v, w
 
     def _update_wall_filter(self, raw):

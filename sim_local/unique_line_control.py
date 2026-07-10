@@ -269,12 +269,16 @@ class UniqueLineFSM:
 
         self._check_emergency_entry()
 
-        v, w = 0.0, 0.0
-        for _ in range(4):  # deja encadenar transiciones dentro del mismo ciclo
-            prev_state = self.state
-            v, w = self._STATE_HANDLERS[self.state]()
-            if self.state == prev_state:
-                break
+        # Un solo despacho por ciclo externo (sin encadenar transiciones
+        # dentro del mismo ciclo): encadenar parecia "mas responsivo",
+        # pero dejaba que un estado recien entrado reevaluara la MISMA
+        # lectura de sensor ya usada por el estado anterior para decidir
+        # la transicion -- encontrado en pista real: eso le "regalaba" a
+        # CORNER_ALIGN una confirmacion de frente-bloqueado gratis justo
+        # al terminar un giro, disparando 2-3 giros de 90 grados
+        # seguidos en la misma esquina en vez de uno solo. Perder un
+        # ciclo (50ms) tras una transicion es un costo aceptable.
+        v, w = self._STATE_HANDLERS[self.state]()
         return v, w
 
     # ------------------------------------------------------------

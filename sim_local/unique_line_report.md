@@ -12,16 +12,16 @@ Polilinea de una sola pared (ver `POINTS` en `unique_line_simulator.py`), con un
 
 | # | dist. inicial (m) | ruido | resultado | estado final | angulo final (deg) | min dist. a pared (m) | pasos | tiempo (s) |
 |---:|---:|:---:|:---:|---|---:|---:|---:|---:|
-| 1 | 0.08 | no | SUCCESS | FOLLOW_WALL | 87.94 | 0.0800 | 2349 | 117.5 |
-| 2 | 0.10 | no | SUCCESS | FOLLOW_WALL | 88.03 | 0.1000 | 2255 | 112.8 |
-| 3 | 0.12 | no | SUCCESS | FOLLOW_WALL | 87.89 | 0.1016 | 2301 | 115.0 |
-| 4 | 0.14 | no | SUCCESS | FOLLOW_WALL | 87.93 | 0.1008 | 2306 | 115.3 |
-| 5 | 0.16 | no | SUCCESS | FOLLOW_WALL | 87.96 | 0.1025 | 2322 | 116.1 |
-| 6 | 0.18 | no | SUCCESS | FOLLOW_WALL | 87.91 | 0.1020 | 2357 | 117.8 |
-| 7 | 0.20 | si | SUCCESS | FOLLOW_WALL | 87.75 | 0.0873 | 2374 | 118.7 |
-| 8 | 0.24 | si | SUCCESS | FOLLOW_WALL | 87.87 | 0.0805 | 2333 | 116.7 |
-| 9 | 0.28 | si | SUCCESS | FOLLOW_WALL | 88.05 | 0.0873 | 2325 | 116.2 |
-| 10 | 0.32 | si | SUCCESS | FOLLOW_WALL | 87.91 | 0.0855 | 2329 | 116.5 |
+| 1 | 0.08 | no | SUCCESS | FOLLOW_WALL | 87.94 | 0.0800 | 2381 | 119.0 |
+| 2 | 0.10 | no | SUCCESS | FOLLOW_WALL | 88.03 | 0.1000 | 2282 | 114.1 |
+| 3 | 0.12 | no | SUCCESS | FOLLOW_WALL | 87.99 | 0.1016 | 2330 | 116.5 |
+| 4 | 0.14 | no | SUCCESS | FOLLOW_WALL | 87.93 | 0.1008 | 2339 | 117.0 |
+| 5 | 0.16 | no | SUCCESS | FOLLOW_WALL | 87.96 | 0.1025 | 2355 | 117.8 |
+| 6 | 0.18 | no | SUCCESS | FOLLOW_WALL | 87.91 | 0.1020 | 2396 | 119.8 |
+| 7 | 0.20 | si | SUCCESS | FOLLOW_WALL | 88.02 | 0.0871 | 2365 | 118.2 |
+| 8 | 0.24 | si | SUCCESS | FOLLOW_WALL | 87.92 | 0.0769 | 2407 | 120.3 |
+| 9 | 0.28 | si | SUCCESS | FOLLOW_WALL | 87.92 | 0.0858 | 2390 | 119.5 |
+| 10 | 0.32 | si | SUCCESS | FOLLOW_WALL | 87.90 | 0.0763 | 2380 | 119.0 |
 
 ## Criterios de aceptacion (seccion 14 del pedido)
 
