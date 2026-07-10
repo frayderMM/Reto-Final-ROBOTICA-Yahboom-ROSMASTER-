@@ -103,6 +103,7 @@ class StateMachineNode(Node):
         self._contador_derecha_libre = 0
         self._chequeo_por_frente = False
         self._giro_vacio_fase = 0
+        self._giro_vacio_repeticiones = 0
         self._avance_fijo_inicio_xy = (0.0, 0.0)
 
         self._STATE_HANDLERS = {
@@ -214,12 +215,16 @@ class StateMachineNode(Node):
             # decision cara de revertir. "Ocupado" no necesita esto.
             'chequeo_pared_confirmaciones_ciclos': 5,
             # Al girar por "lado seguido vacio" (no por obstaculo al
-            # frente), en vez de un solo giro de 90, hace DOS giros de
-            # 90 separados por este avance recto corto en el medio --
-            # mismo mecanismo de giro fijo (_handle_girar_dinamico)
-            # para ambos, ver AVANCE_GIRO_VACIO/_handle_avance_giro_
-            # vacio y _giro_vacio_fase.
-            'avance_giro_vacio_m': 0.10,
+            # frente): giro de 90 (mismo mecanismo de giro fijo,
+            # _handle_girar_dinamico) + avance recto de
+            # avance_giro_vacio_m -- y RECIEN AHI verifica de nuevo si
+            # el lado seguido sigue vacio. Si sigue vacio, repite el
+            # par giro+avance; si ya encuentra pared, retoma
+            # AVANZAR_PARALELO. giro_vacio_max_repeticiones es el tope
+            # de seguridad (evita girar para siempre en un espacio muy
+            # abierto). Ver AVANCE_GIRO_VACIO/_handle_avance_giro_vacio.
+            'avance_giro_vacio_m': 0.12,
+            'giro_vacio_max_repeticiones': 4,
             # Giro de logica_dos_reglas: cierra el lazo por odometria
             # contra angulo_giro_deg (90, fijo y exacto -- ver
             # _handle_girar_dinamico). angulo_maximo_giro_deg es tope
@@ -294,6 +299,7 @@ class StateMachineNode(Node):
         self._distancia_chequeo_pared = float(g('distancia_chequeo_pared_m'))
         self._chequeo_pared_confirmaciones_ciclos = int(g('chequeo_pared_confirmaciones_ciclos'))
         self._avance_giro_vacio = float(g('avance_giro_vacio_m'))
+        self._giro_vacio_max_repeticiones = int(g('giro_vacio_max_repeticiones'))
         self._tiempo_chequeo_pared = float(g('tiempo_chequeo_pared_s'))
         self._contador_frente_dos_reglas = 0
         self._angulo_maximo_giro_rad = math.radians(float(g('angulo_maximo_giro_deg')))
@@ -518,10 +524,14 @@ class StateMachineNode(Node):
            _avance_chequeo_start_xy), se detiene por completo y pasa a
            PAUSA_CHEQUEO_PARED, que verifica con distancia PUNTUAL si
            el lado seguido esta ocupado o vacio -- si esta vacio, gira
-           90 grados DINAMICO ENTRANDO al hueco (_direccion_vacio,
-           mismo mecanismo de la regla 4); si esta ocupado, retoma el
-           avance reiniciando el contador de distancia desde ahi
-           (evita reintentar en el mismo lugar).
+           90 grados DINAMICO ENTRANDO al hueco (_direccion_vacio) mas
+           avance_giro_vacio_m recto, y RECIEN AHI verifica de nuevo:
+           si sigue vacio repite el par giro+avance (hasta
+           giro_vacio_max_repeticiones), si ya encuentra pared retoma
+           AVANZAR_PARALELO (ver AVANCE_GIRO_VACIO); si esta ocupado
+           desde el principio, retoma el avance reiniciando el
+           contador de distancia desde ahi (evita reintentar en el
+           mismo lugar).
         4. Si hay obstaculo al frente (front_narrow, cono angosto)
            sostenido durante frente_confirmaciones_ciclos seguidos, se
            detiene EN SECO y pasa por el mismo PAUSA_CHEQUEO_PARED de
@@ -638,6 +648,7 @@ class StateMachineNode(Node):
             self._decision_actual = self._direccion_vacio()
             self._yaw_inicio_giro = self._yaw
             self._giro_vacio_fase = 1
+            self._giro_vacio_repeticiones = 0
             self._publish_event(
                 EV.GIRO, f'lado seguido vacio ({self._lado_distancia(z):.2f}m) -> {self._decision_actual}'
             )
@@ -823,12 +834,13 @@ class StateMachineNode(Node):
         seguridad adicional (por si el odometro se traba y nunca
         llega al objetivo).
 
-        Si self._giro_vacio_fase == 1 (este giro es el PRIMERO de una
+        Si self._giro_vacio_fase == 1 (este giro es parte de una
         secuencia de "lado seguido vacio"), no vuelve directo a
         AVANZAR_PARALELO al terminar -- pasa por AVANCE_GIRO_VACIO
-        (avance_giro_vacio_m recto) y despues un SEGUNDO giro de 90,
-        para cubrir mejor un hueco/espacio abierto que un giro simple
-        de 90 podria no resolver del todo."""
+        (avance_giro_vacio_m recto), que verifica de nuevo el lado
+        seguido: si sigue vacio, repite otro giro de 90 (hasta
+        giro_vacio_max_repeticiones, tope de seguridad); si ya
+        encuentra pared, recien ahi retoma AVANZAR_PARALELO."""
         angulo_girado = abs(angle_diff(self._yaw, self._yaw_inicio_giro))
 
         if angulo_girado >= self._angulo_giro_rad or angulo_girado >= self._angulo_maximo_giro_rad:
@@ -838,11 +850,9 @@ class StateMachineNode(Node):
                 f'GIRO TERMINADO (90 fijo): girado={math.degrees(angulo_girado):.0f} deg'
             )
             if self._giro_vacio_fase == 1:
-                self._giro_vacio_fase = 2
                 self._avance_fijo_inicio_xy = (self._odom_x, self._odom_y)
                 self._set_state('AVANCE_GIRO_VACIO')
                 return
-            self._giro_vacio_fase = 0
             self._begin_avanzar_paralelo()
             self._set_state('AVANZAR_PARALELO')
             return
@@ -853,29 +863,44 @@ class StateMachineNode(Node):
         self._publish_twist(cmd)
 
     def _handle_avance_giro_vacio(self):
-        """Segunda fase de la secuencia de giro por "lado seguido
-        vacio": tras el primer giro de 90, avanza avance_giro_vacio_m
-        (10cm) en linea recta antes de un SEGUNDO giro de 90 en la
-        MISMA direccion (self._decision_actual no cambia) -- separa
-        los dos giros con un tramo recto corto en vez de un solo giro
-        continuo mas amplio."""
+        """Tras un giro de 90 de la secuencia de "lado seguido vacio",
+        avanza avance_giro_vacio_m (12cm) en linea recta y RECIEN
+        despues verifica de nuevo con distancia PUNTUAL si el lado
+        seguido sigue vacio -- si sigue vacio, repite: otro giro de 90
+        en la MISMA direccion (self._decision_actual no cambia) mas
+        otro avance de 12cm, hasta giro_vacio_max_repeticiones (tope
+        de seguridad, evita girar para siempre en un espacio muy
+        abierto). Si ya encuentra pared, retoma AVANZAR_PARALELO."""
         dx = self._odom_x - self._avance_fijo_inicio_xy[0]
         dy = self._odom_y - self._avance_fijo_inicio_xy[1]
         avance = math.hypot(dx, dy)
 
-        if avance >= self._avance_giro_vacio:
-            self._publish_twist(Twist())
+        if avance < self._avance_giro_vacio:
+            cmd = Twist()
+            cmd.linear.x = self._velocidad_recta
+            self._publish_twist(cmd)
+            return
+
+        self._publish_twist(Twist())
+        z = self._zones
+        lado_libre = bool(self._lado_valid(z) and self._lado_distancia(z) > self._umbral_lado_libre)
+
+        if lado_libre and self._giro_vacio_repeticiones < self._giro_vacio_max_repeticiones:
+            self._giro_vacio_repeticiones += 1
             self._yaw_inicio_giro = self._yaw
-            self._giro_vacio_fase = 0  # el proximo GIRO ya es el ultimo de la secuencia
             self._publish_event(
-                EV.GIRO, f'avanzo {avance:.2f}m -> segundo giro de la secuencia (lado vacio)'
+                EV.GIRO,
+                f'avanzo {avance:.2f}m, lado seguido sigue vacio '
+                f'-> otro giro (rep {self._giro_vacio_repeticiones})'
             )
             self._set_state('GIRAR')
             return
 
-        cmd = Twist()
-        cmd.linear.x = self._velocidad_recta
-        self._publish_twist(cmd)
+        self._giro_vacio_fase = 0
+        motivo = 'lado seguido ocupado' if not lado_libre else 'tope de repeticiones'
+        self._publish_event(EV.GIRO, f'avanzo {avance:.2f}m, {motivo} -> retoma avance')
+        self._begin_avanzar_paralelo()
+        self._set_state('AVANZAR_PARALELO')
 
     def _handle_alinear(self):
         if self._alinear_start is None:

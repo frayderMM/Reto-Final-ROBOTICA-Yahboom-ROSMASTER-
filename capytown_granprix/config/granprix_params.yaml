@@ -200,12 +200,16 @@ state_machine:
     # "Ocupado" no necesita esto (el peor caso es seguir derecho un
     # poco mas).
     chequeo_pared_confirmaciones_ciclos: 5
-    # Al girar por "lado seguido vacio" (no por obstaculo al frente),
-    # en vez de un solo giro de 90, hace DOS giros de 90 separados por
-    # este avance recto corto en el medio (ver AVANCE_GIRO_VACIO en
-    # state_machine_node.py) -- cubre mejor un hueco/espacio abierto
-    # que un giro simple de 90 podria no resolver del todo.
-    avance_giro_vacio_m: 0.10
+    # Al girar por "lado seguido vacio" (no por obstaculo al frente):
+    # giro de 90 + este avance recto, y RECIEN AHI verifica de nuevo
+    # si el lado seguido sigue vacio -- si sigue vacio, repite el par
+    # giro+avance (hasta giro_vacio_max_repeticiones); si ya encuentra
+    # pared, retoma AVANZAR_PARALELO (ver AVANCE_GIRO_VACIO en
+    # state_machine_node.py).
+    avance_giro_vacio_m: 0.12
+    # Tope de seguridad de repeticiones del par giro+avance de arriba
+    # -- evita girar para siempre en un espacio muy abierto.
+    giro_vacio_max_repeticiones: 4
     # Giro de logica_dos_reglas: cierra el lazo por odometria contra
     # angulo_giro_deg (90, ver abajo) -- fijo y exacto. Este es el tope
     # de seguridad adicional (por si el odometro se traba).
