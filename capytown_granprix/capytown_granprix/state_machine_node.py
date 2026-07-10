@@ -98,6 +98,7 @@ class StateMachineNode(Node):
         self._contador_frente_dos_reglas = 0
         self._yaw_inicio_giro = 0.0
         self._pausa_linea_perdida_start = None
+        self._reanudar_avance_start = None
 
         self._STATE_HANDLERS = {
             'INICIAR': self._handle_iniciar,
@@ -190,6 +191,13 @@ class StateMachineNode(Node):
             # antes de verificar si el lado derecho esta REALMENTE
             # libre (z.right puntual, no la linea) y recien ahi girar.
             'tiempo_verificar_hueco_s': 2.0,
+            # Si tras PAUSA_LINEA_PERDIDA resulta que el lado derecho
+            # NO estaba libre, el robot avanza recto a ciegas (ignora
+            # right_ahead_valid, pero no el frente) por este tiempo
+            # antes de rearmar la deteccion de perdida -- si no, como
+            # no se movio, se dispararia la misma pausa de inmediato
+            # otra vez (loop infinito de parar/verificar/parar).
+            'tiempo_reanudar_avance_s': 1.5,
             # Giro DINAMICO de logica_dos_reglas: no gira a angulo_giro_deg
             # fijo -- gira hasta quedar paralelo a la pared siguiente
             # (right_line_angle_rad ~0, con tolerancia_giro_deg), leyendo
@@ -265,6 +273,7 @@ class StateMachineNode(Node):
         self._angular_max_recta = float(g('angular_max_recta_radps'))
         self._frente_confirmaciones_ciclos = int(g('frente_confirmaciones_ciclos'))
         self._tiempo_verificar_hueco = float(g('tiempo_verificar_hueco_s'))
+        self._tiempo_reanudar_avance = float(g('tiempo_reanudar_avance_s'))
         self._contador_frente_dos_reglas = 0
         self._angulo_minimo_giro_rad = math.radians(float(g('angulo_minimo_giro_deg')))
         self._angulo_maximo_giro_rad = math.radians(float(g('angulo_maximo_giro_deg')))
@@ -451,7 +460,12 @@ class StateMachineNode(Node):
            perdida antes de que la ventana principal tambien la
            pierda) y pasa a PAUSA_LINEA_PERDIDA a verificar si es un
            hueco real antes de girar 90 grados DINAMICO a la DERECHA
-           (mismo mecanismo de la regla 4).
+           (mismo mecanismo de la regla 4). Si PAUSA_LINEA_PERDIDA
+           determina que el lado derecho NO estaba libre, se avanza a
+           ciegas tiempo_reanudar_avance_s antes de volver a chequear
+           right_ahead_valid -- si no, como el robot no se movio,
+           volveria a dispararse esta misma pausa de inmediato (loop
+           infinito de parar/verificar/parar sin avanzar nunca).
         4. Si hay obstaculo al frente (front_narrow, cono angosto)
            sostenido durante frente_confirmaciones_ciclos seguidos,
            girar 90 grados DINAMICO a la IZQUIERDA (ignora derecha/
@@ -480,6 +494,23 @@ class StateMachineNode(Node):
             self._pausa_giro_start = self.get_clock().now()
             self._set_state('PAUSA_GIRO')
             return
+
+        if self._reanudar_avance_start is not None:
+            # Venimos de PAUSA_LINEA_PERDIDA con "lado derecho no esta
+            # libre": si volvieramos directo a chequear right_ahead_
+            # valid, seguiria perdida en el mismo lugar (el robot no se
+            # movio) y se dispararia PAUSA_LINEA_PERDIDA otra vez de
+            # inmediato -- loop infinito de parar/verificar/parar sin
+            # avanzar nunca. Avanza recto a ciegas (ignora right_ahead_
+            # valid, pero NO el frente) por tiempo_reanudar_avance_s
+            # para salir de la zona antes de rearmar la deteccion.
+            elapsed_reanudar = (self.get_clock().now() - self._reanudar_avance_start).nanoseconds / 1e9
+            if elapsed_reanudar < self._tiempo_reanudar_avance:
+                cmd = Twist()
+                cmd.linear.x = self._velocidad_recta
+                self._publish_twist(cmd)
+                return
+            self._reanudar_avance_start = None
 
         if not z.right_ahead_valid:
             # Ventana de ANTICIPACION perdida: frenar EN SECO de
@@ -523,7 +554,12 @@ class StateMachineNode(Node):
         if not derecha_libre:
             # No estaba realmente libre: retoma el avance normal en
             # vez de forzar un giro hacia algo que no es un hueco real.
+            # Arma el cooldown de reanudar_avance -- si no, el robot no
+            # se movio nada y right_ahead_valid seguiria perdida en el
+            # mismo lugar, disparando esta pausa otra vez de inmediato
+            # (loop infinito de parar/verificar/parar sin avanzar).
             self._publish_event(EV.GIRO, 'lado derecho no esta libre -> retoma avance')
+            self._reanudar_avance_start = self.get_clock().now()
             self._set_state('AVANZAR_PARALELO')
             return
 

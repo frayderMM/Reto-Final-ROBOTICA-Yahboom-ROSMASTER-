@@ -62,13 +62,22 @@ lidar_processor:
     # veces. Segunda capa de defensa ademas de la ventana angosta.
     outlier_max_iter: 3
     outlier_residuo_m: 0.03
+    # Rango maximo PROPIO para el lado derecho (right_line_* y
+    # right_ahead_valid), mucho mas corto que max_range_use_m (4m
+    # arriba). Sin este limite, el ajuste encuentra CUALQUIER
+    # superficie dentro de 4m (pared lejana, otro lado de un espacio
+    # abierto) y la reporta como "pared valida" aunque la pared
+    # seguida (a ~12cm) ya termino -- la perdida de pared casi nunca
+    # se detectaba en la practica por este motivo.
+    right_wall_max_range_m: 0.50
 
     # Ventana de ANTICIPACION: porcion mas ADELANTADA (mas cerca del
     # frente) de right_side_window_deg. Como mira mas hacia adelante en
     # el pasillo, es la primera en quedarse sin puntos cuando se acerca
     # un hueco/esquina en la pared derecha -- se usa en state_machine
     # (right_ahead_valid) para DETENERSE de inmediato apenas se pierde,
-    # sin esperar varios ciclos de confirmacion.
+    # sin esperar varios ciclos de confirmacion. Mismo ajuste de recta
+    # con rechazo de outliers que right_line_* (no un simple conteo).
     right_ahead_window_deg: [-95.0, -70.0]
     min_puntos_adelanto: 4
 
@@ -181,6 +190,12 @@ state_machine:
     # realidad no esta libre (ver PAUSA_LINEA_PERDIDA en
     # state_machine_node.py).
     tiempo_verificar_hueco_s: 2.0
+    # Si tras PAUSA_LINEA_PERDIDA resulta que el lado derecho NO estaba
+    # libre, el robot avanza recto a ciegas (ignora right_ahead_valid,
+    # pero no el frente) por este tiempo antes de rearmar la deteccion
+    # de perdida -- si no, como no se movio, se dispararia la misma
+    # pausa de inmediato otra vez (loop infinito de parar/verificar).
+    tiempo_reanudar_avance_s: 1.5
     # Giro dinamico: resguardo minimo (no confundir con la pared vieja)
     # y tope maximo de seguridad (si nunca encuentra pared paralela).
     angulo_minimo_giro_deg: 45.0
