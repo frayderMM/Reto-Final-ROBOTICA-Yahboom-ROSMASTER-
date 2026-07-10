@@ -199,6 +199,12 @@ state_machine:
     # "Ocupado" no necesita esto (el peor caso es seguir derecho un
     # poco mas).
     chequeo_pared_confirmaciones_ciclos: 5
+    # Al girar por "lado seguido vacio" (no por obstaculo al frente),
+    # en vez de un solo giro de 90, hace DOS giros de 90 separados por
+    # este avance recto corto en el medio (ver AVANCE_GIRO_VACIO en
+    # state_machine_node.py) -- cubre mejor un hueco/espacio abierto
+    # que un giro simple de 90 podria no resolver del todo.
+    avance_giro_vacio_m: 0.10
     # Giro de logica_dos_reglas: cierra el lazo por odometria contra
     # angulo_giro_deg (90, ver abajo) -- fijo y exacto. Este es el tope
     # de seguridad adicional (por si el odometro se traba).
