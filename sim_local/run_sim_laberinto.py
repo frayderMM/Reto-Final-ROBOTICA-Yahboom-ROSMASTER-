@@ -135,11 +135,6 @@ def parse_args():
                     help='giro DINAMICO: tope de seguridad si nunca encuentra pared paralela')
     p.add_argument('--tolerancia-paralelo', type=float, default=4.0,
                     help='giro DINAMICO: grados de angulo de linea considerados "paralelo"')
-    p.add_argument('--angulo-maximo-giro-vacio', type=float, default=360.0,
-                    help='giro EN U (lado derecho vacio -> DERECHA): no busca un angulo '
-                         'particular, avanza girando hasta volver a encontrar FISICAMENTE una '
-                         'pared cerca -- este es el tope de seguridad (una vuelta completa) si '
-                         'nunca encuentra pared')
     return p.parse_args()
 
 
@@ -347,12 +342,9 @@ def _correr_logica_simple(args):
        detiene por completo y verifica con distancia PUNTUAL
        (VENT_LINEA con zona_min, no el ajuste de recta) si el lado
        derecho esta ocupado o vacio, tras --tiempo-chequeo-pared (1s)
-       detenido ("vacio" exige --chequeo-pared-confirmaciones lecturas
-       seguidas). Si esta vacio, gira EN U a la DERECHA (GIRAR_VACIO:
-       no busca un angulo particular, avanza girando hasta volver a
-       encontrar fisicamente una pared cerca); si esta ocupado, retoma
-       el avance reiniciando el contador de distancia desde ahi (evita
-       reintentar en el mismo lugar).
+       detenido. Si esta vacio, gira a la DERECHA; si esta ocupado,
+       retoma el avance reiniciando el contador de distancia desde ahi
+       (evita reintentar en el mismo lugar).
     4. Si detecta un obstaculo al frente (cono angosto, ver
        VENT_FRONT_ESTRECHO) sostenido durante --frente-confirmaciones
        ciclos seguidos, se detiene EN SECO y pasa por el mismo
@@ -504,10 +496,10 @@ def _correr_logica_simple(args):
                             num_giros += 1
                             direccion_giro = 'DERECHA'
                             yaw_inicio_giro = pose.theta
-                            ultima_decision_info = f'lado derecho vacio ({right_d*100:.0f}cm) -> DERECHA (giro en U)'
+                            ultima_decision_info = f'lado derecho vacio ({right_d*100:.0f}cm) -> DERECHA'
                             print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
                                   f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
-                            estado = 'GIRAR_VACIO'
+                            estado = 'GIRAR_DINAMICO'  # mismo estado, sirve para cualquier direccion
                     else:
                         contador_derecha_libre = 0
                         if chequeo_por_frente:
@@ -541,36 +533,6 @@ def _correr_logica_simple(args):
                           f'theta={math.degrees(pose.theta):+.1f} girado={math.degrees(angulo_girado):.0f}°')
                     avance_chequeo_inicio_xy = (pose.x, pose.y)
                     estado = 'AVANZAR'
-
-            elif estado == 'GIRAR_VACIO':
-                # Giro EN U tras detectar hueco a la derecha: NO busca
-                # un angulo particular como GIRAR_DINAMICO (que busca
-                # quedar paralelo) -- avanza girando a la derecha hasta
-                # volver a encontrar FISICAMENTE una pared cerca
-                # (right_d <= --umbral-lado-libre), que puede requerir
-                # girar bastante mas que una esquina normal si el
-                # hueco es un espacio abierto. --angulo-maximo-giro-
-                # vacio (360, una vuelta completa) es el tope de
-                # seguridad si nunca encuentra pared.
-                ajuste = None
-                angulo_girado = abs(diferencia_angular(pose.theta, yaw_inicio_giro))
-                right_d, right_v = zona_min(angulos, rangos, VENT_LINEA)
-                pared_encontrada = (
-                    angulo_girado >= math.radians(args.angulo_minimo_giro)
-                    and right_v and right_d <= args.umbral_lado_libre
-                )
-                if pared_encontrada:
-                    print(f'[paso {paso}] GIRO TERMINADO (pared encontrada a {right_d*100:.0f}cm) '
-                          f'theta={math.degrees(pose.theta):+.1f} girado={math.degrees(angulo_girado):.0f}°')
-                    avance_chequeo_inicio_xy = (pose.x, pose.y)
-                    estado = 'AVANZAR'
-                elif angulo_girado >= math.radians(args.angulo_maximo_giro_vacio):
-                    print(f'[paso {paso}] GIRO TERMINADO (tope de seguridad 360, sin pared) '
-                          f'theta={math.degrees(pose.theta):+.1f} girado={math.degrees(angulo_girado):.0f}°')
-                    avance_chequeo_inicio_xy = (pose.x, pose.y)
-                    estado = 'AVANZAR'
-                else:
-                    pose = integrar(pose, args.v_giro_lineal, -args.v_giro_angular, DT)
 
             trayectoria_x.append(pose.x)
             trayectoria_y.append(pose.y)
@@ -652,8 +614,6 @@ def _descripcion_accion(estado, decision_actual, args):
     if estado == 'GIRAR_DINAMICO':
         direccion = decision_actual or '?'
         return f'Girando {direccion} (dinamico, hasta quedar paralelo a la pared siguiente)'
-    if estado == 'GIRAR_VACIO':
-        return 'Girando en U a la DERECHA (hasta volver a encontrar pared)'
     return estado
 
 
@@ -685,7 +645,7 @@ def _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado, decision_info,
     color_estado = {
         'AVANZAR_PARALELO': 'black', 'PAUSA_GIRO': 'firebrick',
         'GIRAR': 'purple', 'ALINEAR': 'teal',
-        'AVANZAR': 'black', 'GIRAR_DINAMICO': 'purple', 'GIRAR_VACIO': 'darkorange',
+        'AVANZAR': 'black', 'GIRAR_DINAMICO': 'purple',
         'PAUSA_CHEQUEO_PARED': 'firebrick',
     }.get(estado, 'black')
     accion = _descripcion_accion(estado, decision_actual, args)

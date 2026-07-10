@@ -190,14 +190,6 @@ state_machine:
     # y tope maximo de seguridad (si nunca encuentra pared paralela).
     angulo_minimo_giro_deg: 45.0
     angulo_maximo_giro_deg: 150.0
-    # Giro EN U de la regla 3 (right_valid vacio -> DERECHA, ver
-    # GIRAR_VACIO en state_machine_node.py): a diferencia del giro de
-    # esquina de arriba (que busca quedar PARALELO), este avanza
-    # girando a la derecha hasta volver a encontrar FISICAMENTE una
-    # pared cerca (z.right <= umbral_lado_libre_m), no un angulo
-    # particular -- tope de seguridad generoso (360, una vuelta
-    # completa) si nunca encuentra pared.
-    angulo_maximo_giro_vacio_deg: 360.0
 
     # --- Correccion de escala del odometro (calibrado en pista) ---
     # El ROSMASTER R2 sobreestima distancia y angulo de forma consistente.
