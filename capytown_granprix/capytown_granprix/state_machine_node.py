@@ -100,6 +100,7 @@ class StateMachineNode(Node):
         self._contador_frente_dos_reglas = 0
         self._yaw_inicio_giro = 0.0
         self._pausa_chequeo_start = None
+        self._chequeo_por_frente = False
 
         self._STATE_HANDLERS = {
             'INICIAR': self._handle_iniciar,
@@ -461,14 +462,21 @@ class StateMachineNode(Node):
            retoma el avance reiniciando el contador de distancia desde
            ahi (evita reintentar en el mismo lugar).
         4. Si hay obstaculo al frente (front_narrow, cono angosto)
-           sostenido durante frente_confirmaciones_ciclos seguidos,
-           girar 90 grados DINAMICO a la IZQUIERDA (ignora derecha/
-           izquierda, no un angulo fijo -- sigue girando, leyendo la
-           linea EN VIVO, hasta quedar paralelo a la pared siguiente)
-           y retomar. Se evalua DESPUES de la regla 3: en el ciclo
-           exacto en que ambas coincidirian, igual se prioriza el
-           chequeo de pared (de todas formas el resultado es el mismo
-           freno en seco -- ambas ramas publican velocidad cero).
+           sostenido durante frente_confirmaciones_ciclos seguidos, se
+           detiene EN SECO y pasa por el mismo PAUSA_CHEQUEO_PARED de
+           la regla 3 (detenido tiempo_chequeo_pared_s, 1s, y RECIEN
+           despues verifica con distancia PUNTUAL si el lado derecho
+           esta ocupado o vacio) antes de girar -- si esta VACIO, gira
+           90 grados DINAMICO a la DERECHA; si esta OCUPADO, gira a la
+           IZQUIERDA (con self._chequeo_por_frente=True, PAUSA_CHEQUEO_
+           PARED sabe que aqui no puede "retomar avance" como en la
+           regla 3, porque el frente sigue bloqueado). Sin este
+           chequeo, un giro ciego a la izquierda en un rincon angosto
+           puede volver a encerrar al robot en el mismo bolsillo del
+           que viene (loop cerrado observado en sim_local/, ver commit
+           anterior). Se evalua DESPUES de la regla 3: en el ciclo
+           exacto en que ambas coincidirian, se prioriza el chequeo
+           periodico (el resultado es el mismo freno en seco).
 
         No cuenta celdas ni pasa por ALINEAR (el giro dinamico ya lo
         reemplaza) -- portado tal cual de
@@ -484,6 +492,7 @@ class StateMachineNode(Node):
             self._publish_event(
                 EV.GIRO, f'avanzo {avance_chequeo:.2f}m -> detenido a verificar pared derecha'
             )
+            self._chequeo_por_frente = False
             self._publish_twist(Twist())
             self._pausa_chequeo_start = self.get_clock().now()
             self._set_state('PAUSA_CHEQUEO_PARED')
@@ -496,14 +505,13 @@ class StateMachineNode(Node):
 
         if self._contador_frente_dos_reglas >= self._frente_confirmaciones_ciclos:
             self._contador_frente_dos_reglas = 0
-            self._decision_actual = 'IZQUIERDA'
-            self._yaw_inicio_giro = self._yaw
             self._publish_event(
-                EV.GIRO, f'obstaculo al frente ({z.front_narrow:.2f}m) -> IZQUIERDA'
+                EV.GIRO, f'obstaculo al frente ({z.front_narrow:.2f}m) -> detenido a verificar pared derecha'
             )
+            self._chequeo_por_frente = True
             self._publish_twist(Twist())
-            self._pausa_giro_start = self.get_clock().now()
-            self._set_state('PAUSA_GIRO')
+            self._pausa_chequeo_start = self.get_clock().now()
+            self._set_state('PAUSA_CHEQUEO_PARED')
             return
 
         cmd = Twist()
@@ -521,13 +529,21 @@ class StateMachineNode(Node):
         self._publish_twist(cmd)
 
     def _handle_pausa_chequeo_pared(self):
-        """Cada distancia_chequeo_pared_m de avance en linea recta, se
-        detiene tiempo_chequeo_pared_s (1s) y RECIEN despues verifica
-        con distancia PUNTUAL (z.right, no el ajuste de linea) si el
-        lado derecho esta ocupado (pared) o vacio -- si esta vacio,
-        gira a la DERECHA; si esta ocupado, retoma el avance
-        reiniciando el contador de distancia desde la posicion actual
-        (evita volver a dispararse de inmediato en el mismo lugar)."""
+        """Detenido tiempo_chequeo_pared_s (1s) -- ya sea por el
+        chequeo PERIODICO (regla 3) o porque se confirmo un obstaculo
+        al frente (regla 4, self._chequeo_por_frente=True) -- y RECIEN
+        despues verifica con distancia PUNTUAL (z.right, no el ajuste
+        de linea) si el lado derecho esta ocupado (pared) o vacio:
+
+        - Si esta VACIO: gira a la DERECHA (en ambos casos).
+        - Si esta OCUPADO:
+          - Si vino del chequeo periodico (regla 3): retoma el avance
+            normal, reiniciando el contador de distancia desde aqui
+            (evita volver a dispararse de inmediato en el mismo
+            lugar).
+          - Si vino de un obstaculo al frente (regla 4): NO puede
+            simplemente retomar el avance (el frente sigue bloqueado)
+            -- gira a la IZQUIERDA."""
         self._publish_twist(Twist())
         elapsed = (self.get_clock().now() - self._pausa_chequeo_start).nanoseconds / 1e9
         if elapsed < self._tiempo_chequeo_pared:
@@ -536,18 +552,25 @@ class StateMachineNode(Node):
         z = self._zones
         derecha_libre = bool(z.right_valid and z.right > self._umbral_lado_libre)
 
-        if not derecha_libre:
-            # Ocupado: sigue habiendo pared -- retoma el avance normal,
-            # reiniciando el contador de distancia desde aqui.
-            self._publish_event(EV.GIRO, 'lado derecho ocupado -> retoma avance')
-            self._avance_chequeo_start_xy = (self._odom_x, self._odom_y)
-            self._set_state('AVANZAR_PARALELO')
+        if derecha_libre:
+            self._decision_actual = 'DERECHA'
+            self._yaw_inicio_giro = self._yaw
+            self._publish_event(EV.GIRO, f'lado derecho vacio ({z.right:.2f}m) -> DERECHA')
+            self._set_state('GIRAR')
             return
 
-        self._decision_actual = 'DERECHA'
-        self._yaw_inicio_giro = self._yaw
-        self._publish_event(EV.GIRO, f'lado derecho vacio ({z.right:.2f}m) -> DERECHA')
-        self._set_state('GIRAR')
+        if self._chequeo_por_frente:
+            self._decision_actual = 'IZQUIERDA'
+            self._yaw_inicio_giro = self._yaw
+            self._publish_event(EV.GIRO, 'lado derecho ocupado, frente bloqueado -> IZQUIERDA')
+            self._set_state('GIRAR')
+            return
+
+        # Ocupado (chequeo periodico): sigue habiendo pared -- retoma
+        # el avance normal, reiniciando el contador de distancia.
+        self._publish_event(EV.GIRO, 'lado derecho ocupado -> retoma avance')
+        self._avance_chequeo_start_xy = (self._odom_x, self._odom_y)
+        self._set_state('AVANZAR_PARALELO')
 
     def _handle_detectar_cruce(self):
         self._publish_twist(Twist())

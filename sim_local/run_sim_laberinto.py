@@ -343,9 +343,18 @@ def _correr_logica_simple(args):
        (evita reintentar en el mismo lugar).
     4. Si detecta un obstaculo al frente (cono angosto, ver
        VENT_FRONT_ESTRECHO) sostenido durante --frente-confirmaciones
-       ciclos seguidos, girar a la IZQUIERDA. Se evalua DESPUES de la
-       regla 3: en el paso exacto en que ambas coincidirian, se
-       prioriza el chequeo de pared (de todas formas el resultado es
+       ciclos seguidos, se detiene EN SECO y pasa por el mismo
+       PAUSA_CHEQUEO_PARED de la regla 3 (1s detenido, RECIEN despues
+       verifica con distancia PUNTUAL si el lado derecho esta ocupado
+       o vacio) antes de girar -- si esta VACIO, gira a la DERECHA; si
+       esta OCUPADO, gira a la IZQUIERDA (aqui NO puede "retomar
+       avance" como en la regla 3, porque el frente sigue bloqueado).
+       Sin este chequeo, un giro ciego a la izquierda en un rincon
+       angosto puede volver a encerrar al robot en el mismo bolsillo
+       del que viene (loop cerrado real, observado en el simulador
+       visual: misma posicion y heading repitiendose cada ~355 pasos).
+       Se evalua DESPUES de la regla 3: en el paso exacto en que ambas
+       coincidirian, se prioriza el chequeo periodico (el resultado es
        el mismo freno en seco).
 
     Ambos giros son DINAMICOS, no un angulo fijo: siguen girando (con
@@ -353,14 +362,15 @@ def _correr_logica_simple(args):
     la pared siguiente (angulo de linea ~0), con --angulo-minimo-giro
     de resguardo y --angulo-maximo-giro de tope de seguridad.
 
-    Arranca paralelo a la pared inferior (fila 4, mirando al ESTE/
-    derecha) en vez de mirando al norte -- coincide con la entrada
-    real de A4 (lateral izquierdo, DETALLE_PISTA.md seccion 6).
+    Arranca en A4 mirando al NORTE (arriba), pegado a la pared
+    izquierda -- con esta orientacion el lado DERECHO del robot (el
+    que sigue con right_line_*) queda contra esa pared izquierda del
+    laberinto.
     """
-    inicio_x, inicio_y = 0.5 * args.celda_real, 3.5 * args.celda_real
+    inicio_x, inicio_y = args.distancia_objetivo, 3.5 * args.celda_real
     meta_x, meta_y = 5.5 * args.celda_real, 0.5 * args.celda_real
     umbral_meta = 0.25 * args.celda_real
-    theta_inicio = 0.0  # mirando al este, paralelo a la pared inferior
+    theta_inicio = -math.pi / 2.0  # mirando al norte (arriba), pegado a la pared izquierda
 
     params_giro_dinamico = ParametrosGiroDinamico(
         velocidad_lineal_mps=args.v_giro_lineal,
@@ -380,6 +390,7 @@ def _correr_logica_simple(args):
     num_giros = 0
     contador_frente = 0
     pausa_chequeo_inicio = None
+    chequeo_por_frente = False
     avance_chequeo_inicio_xy = (pose.x, pose.y)
 
     trayectoria_x, trayectoria_y = [pose.x], [pose.y]
@@ -410,6 +421,7 @@ def _correr_logica_simple(args):
                     ultima_decision_info = f'avanzo {avance_chequeo*100:.0f}cm -> detenido a verificar pared derecha'
                     print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
                           f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
+                    chequeo_por_frente = False
                     pausa_chequeo_inicio = paso
                     estado = 'PAUSA_CHEQUEO_PARED'
                     ajuste = None
@@ -420,14 +432,20 @@ def _correr_logica_simple(args):
                     frente_bloqueado = contador_frente >= args.frente_confirmaciones
 
                     if frente_bloqueado:
-                        num_giros += 1
                         contador_frente = 0
-                        direccion_giro = 'IZQUIERDA'
-                        yaw_inicio_giro = pose.theta
-                        ultima_decision_info = f'obstaculo al frente ({front_d*100:.0f}cm) -> IZQUIERDA'
+                        # Se detiene EN SECO y pasa por el mismo
+                        # PAUSA_CHEQUEO_PARED de la regla 3 (1s
+                        # detenido y RECIEN despues verifica el lado
+                        # derecho) antes de girar -- evita un giro
+                        # ciego a la izquierda que puede volver a
+                        # encerrar al robot en el mismo bolsillo del
+                        # que viene (loop cerrado observado antes).
+                        ultima_decision_info = f'obstaculo al frente ({front_d*100:.0f}cm) -> detenido a verificar pared derecha'
                         print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
                               f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
-                        estado = 'GIRAR_IZQUIERDA'
+                        chequeo_por_frente = True
+                        pausa_chequeo_inicio = paso
+                        estado = 'PAUSA_CHEQUEO_PARED'
                         ajuste = None
                     else:
                         ajuste = ajustar_linea_pared(angulos, rangos, *VENT_LINEA,
@@ -444,11 +462,16 @@ def _correr_logica_simple(args):
                             pose = integrar(pose, args.velocidad, w, DT)
 
             elif estado == 'PAUSA_CHEQUEO_PARED':
-                # Detenido --tiempo-chequeo-pared (1s) al llegar a
-                # --distancia-chequeo-pared de avance, y RECIEN
-                # despues chequea con distancia puntual (no la linea)
-                # si el lado derecho esta ocupado o vacio (ver
-                # _handle_pausa_chequeo_pared en state_machine_node.py).
+                # Detenido --tiempo-chequeo-pared (1s) -- ya sea por el
+                # chequeo PERIODICO o por un obstaculo al frente
+                # (chequeo_por_frente) -- y RECIEN despues chequea con
+                # distancia puntual (no la linea) si el lado derecho
+                # esta ocupado o vacio (ver _handle_pausa_chequeo_pared
+                # en state_machine_node.py). Si esta vacio, gira a la
+                # DERECHA en ambos casos; si esta ocupado: si vino del
+                # chequeo periodico retoma el avance, pero si vino de
+                # un obstaculo al frente (no puede seguir derecho) gira
+                # a la IZQUIERDA.
                 ajuste = None
                 if (paso - pausa_chequeo_inicio) * DT >= args.tiempo_chequeo_pared:
                     right_d, right_v = zona_min(angulos, rangos, VENT_LINEA)
@@ -461,6 +484,14 @@ def _correr_logica_simple(args):
                         print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
                               f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
                         estado = 'GIRAR_IZQUIERDA'  # mismo estado, sirve para cualquier direccion
+                    elif chequeo_por_frente:
+                        num_giros += 1
+                        direccion_giro = 'IZQUIERDA'
+                        yaw_inicio_giro = pose.theta
+                        ultima_decision_info = 'lado derecho ocupado, frente bloqueado -> IZQUIERDA'
+                        print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
+                              f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
+                        estado = 'GIRAR_IZQUIERDA'
                     else:
                         ultima_decision_info = 'lado derecho ocupado -> retoma avance'
                         print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
