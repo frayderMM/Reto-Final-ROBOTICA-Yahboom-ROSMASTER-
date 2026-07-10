@@ -362,15 +362,17 @@ def _correr_logica_simple(args):
     la pared siguiente (angulo de linea ~0), con --angulo-minimo-giro
     de resguardo y --angulo-maximo-giro de tope de seguridad.
 
-    Arranca en A4 mirando al NORTE (arriba), pegado a la pared
-    izquierda -- con esta orientacion el lado DERECHO del robot (el
-    que sigue con right_line_*) queda contra esa pared izquierda del
-    laberinto.
+    Arranca en F4 mirando hacia la IZQUIERDA (oeste), pegado a la
+    pared inferior -- con esta orientacion (heading=180) el lado
+    DERECHO del robot (heading-90=+90=+Y, hacia abajo en pantalla)
+    queda contra esa pared inferior de la fila 4. La meta pasa a ser
+    A4 (el punto de partida original), para que el recorrido siga
+    siendo no trivial.
     """
-    inicio_x, inicio_y = args.distancia_objetivo, 3.5 * args.celda_real
-    meta_x, meta_y = 5.5 * args.celda_real, 0.5 * args.celda_real
+    inicio_x, inicio_y = 5.5 * args.celda_real, 4.0 * args.celda_real - args.distancia_objetivo
+    meta_x, meta_y = 0.5 * args.celda_real, 3.5 * args.celda_real
     umbral_meta = 0.25 * args.celda_real
-    theta_inicio = -math.pi / 2.0  # mirando al norte (arriba), pegado a la pared izquierda
+    theta_inicio = math.pi  # mirando a la izquierda (oeste), pegado a la pared inferior
 
     params_giro_dinamico = ParametrosGiroDinamico(
         velocidad_lineal_mps=args.v_giro_lineal,
