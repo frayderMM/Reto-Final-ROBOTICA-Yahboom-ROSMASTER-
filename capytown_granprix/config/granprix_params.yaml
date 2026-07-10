@@ -55,6 +55,10 @@ lidar_processor:
     # agarrar puntos de esa otra pared, sesgando el angulo hasta ~37
     # grados falsos -- confirmado con una esquina real en sim_local/.
     right_side_window_deg: [-110.0, -70.0]
+    # Espejo de right_side_window_deg para el ajuste de recta del lado
+    # IZQUIERDO (left_line_*), usado cuando seguir_pared_izquierda=true
+    # (state_machine, abajo). Mismo rango que left_window_deg arriba.
+    left_side_window_deg: [70.0, 110.0]
     min_puntos_linea: 6
     # Rechazo iterativo de outliers en el ajuste de recta (puntos que
     # no encajan bien, probablemente de otra superficie como una
@@ -68,6 +72,8 @@ lidar_processor:
     # lejana, otro lado de un espacio abierto) y la reporta como
     # "pared valida" aunque la pared seguida (a ~12cm) ya termino.
     right_wall_max_range_m: 0.50
+    # Espejo de right_wall_max_range_m para el lado izquierdo.
+    left_wall_max_range_m: 0.50
 
 wall_follower:
   ros__parameters:
@@ -149,20 +155,27 @@ state_machine:
     # no distancia puntual -- evita confundir una pared vista en
     # diagonal con un obstaculo real) hacia distancia_objetivo_m; cada
     # distancia_chequeo_pared_m de avance se detiene tiempo_chequeo_
-    # pared_s y verifica con distancia PUNTUAL (right/right_valid, no
-    # la linea) si el lado derecho esta ocupado o vacio -- si esta
-    # vacio, gira a la DERECHA; si esta ocupado, retoma el avance; si
-    # hay obstaculo al frente sostenido
-    # frente_confirmaciones_ciclos seguidos, gira a la IZQUIERDA.
-    # Ambos giros son DINAMICOS -- no un angulo fijo, siguen girando
-    # (leyendo la linea EN VIVO) hasta quedar paralelos a la pared
-    # siguiente (ver angulo_minimo/maximo_giro_deg abajo), sin contar
-    # celdas ni pasar por ALINEAR (el giro dinamico ya lo reemplaza).
-    # Ver sim_local/run_sim_laberinto.py::_correr_logica_simple (el
-    # mismo comportamiento validado ahi). PONER EN FALSE antes de
-    # volver a la logica real de seguimiento de pared / antes de
-    # competencia.
+    # pared_s y verifica con distancia PUNTUAL si el lado SEGUIDO
+    # (ver seguir_pared_izquierda abajo) esta ocupado o vacio -- si
+    # esta vacio, gira ENTRANDO al hueco; si esta ocupado, retoma el
+    # avance; si hay obstaculo al frente sostenido
+    # frente_confirmaciones_ciclos seguidos, gira ALEJANDOSE de la
+    # pared seguida. Ambos giros son DINAMICOS -- no un angulo fijo,
+    # siguen girando (leyendo la linea EN VIVO) hasta quedar paralelos
+    # a la pared siguiente (ver angulo_minimo/maximo_giro_deg abajo),
+    # sin contar celdas ni pasar por ALINEAR (el giro dinamico ya lo
+    # reemplaza). Ver sim_local/run_sim_laberinto.py::
+    # _correr_logica_simple (el mismo comportamiento validado ahi).
+    # PONER EN FALSE antes de volver a la logica real de seguimiento
+    # de pared / antes de competencia.
     logica_dos_reglas: true
+    # true = sigue la pared IZQUIERDA (left_line_*, left/left_valid);
+    # false = sigue la pared DERECHA (right_line_*, right/right_valid,
+    # el original). Ver _line_*/_lado_*/_direccion_* en
+    # state_machine_node.py -- cambiar esto tambien espeja las
+    # direcciones de giro (obstaculo al frente se aleja de la pared
+    # seguida, "vacio" entra al hueco de ese mismo lado).
+    seguir_pared_izquierda: true
     velocidad_recta_mps: 0.15
     distancia_objetivo_m: 0.12
     ganancia_angulo_recta: 2.0

@@ -53,6 +53,10 @@ class LidarProcessorNode(Node):
         self.declare_parameter('right_rear_window_deg', [-135.0, -105.0])
         self.declare_parameter('left_window_deg', [70.0, 110.0])
         self.declare_parameter('right_side_window_deg', [-110.0, -70.0])
+        # Espejo de right_side_window_deg para el ajuste de recta del
+        # lado IZQUIERDO (left_line_*) -- mismo rango que left_window_
+        # deg arriba.
+        self.declare_parameter('left_side_window_deg', [70.0, 110.0])
         self.declare_parameter('min_puntos_linea', 6)
         # Rango maximo PROPIO para el lado derecho (right_line_*),
         # mucho mas corto que max_range_use_m (4m). Sin este limite, el
@@ -61,6 +65,8 @@ class LidarProcessorNode(Node):
         # reporta como "pared valida" aunque la pared que se esta
         # siguiendo (a ~12cm) ya termino.
         self.declare_parameter('right_wall_max_range_m', 0.50)
+        # Espejo de right_wall_max_range_m para el lado izquierdo.
+        self.declare_parameter('left_wall_max_range_m', 0.50)
         self.declare_parameter('outlier_max_iter', 3)
         self.declare_parameter('outlier_residuo_m', 0.03)
 
@@ -79,8 +85,10 @@ class LidarProcessorNode(Node):
             'front_narrow': ZoneWindow(*self.get_parameter('front_narrow_window_deg').value),
         }
         self._right_side_window = ZoneWindow(*self.get_parameter('right_side_window_deg').value)
+        self._left_side_window = ZoneWindow(*self.get_parameter('left_side_window_deg').value)
         self._min_puntos_linea = int(self.get_parameter('min_puntos_linea').value)
         self._right_wall_max_range = float(self.get_parameter('right_wall_max_range_m').value)
+        self._left_wall_max_range = float(self.get_parameter('left_wall_max_range_m').value)
         self._outlier_max_iter = int(self.get_parameter('outlier_max_iter').value)
         self._outlier_residuo_m = float(self.get_parameter('outlier_residuo_m').value)
 
@@ -128,6 +136,18 @@ class LidarProcessorNode(Node):
         out.right_line_angle_rad = angulo
         out.right_line_distance_m = distancia_linea
         out.right_line_valid = valido_linea
+
+        # Espejo para el lado izquierdo (misma funcion de ajuste,
+        # rango propio left_wall_max_range_m).
+        range_max_left = min(range_max_use, self._left_wall_max_range)
+        angulo_i, distancia_linea_i, valido_linea_i = fit_wall_line(
+            ranges, robot_angles, msg.range_min, range_max_left,
+            self._left_side_window, self._min_puntos_linea,
+            self._outlier_max_iter, self._outlier_residuo_m,
+        )
+        out.left_line_angle_rad = angulo_i
+        out.left_line_distance_m = distancia_linea_i
+        out.left_line_valid = valido_linea_i
 
         self._pub.publish(out)
 

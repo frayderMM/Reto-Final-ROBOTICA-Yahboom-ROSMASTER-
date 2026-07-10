@@ -34,3 +34,10 @@ bool front_narrow_valid
 float32 right_line_angle_rad     # angulo de la pared respecto al frente del robot
 float32 right_line_distance_m    # distancia perpendicular del robot a la pared
 bool right_line_valid
+
+# Espejo de right_line_* para el lado IZQUIERDO (misma regresion,
+# mismo rechazo de outliers, left_wall_max_range_m como rango propio).
+# Usado por state_machine_node cuando seguir_pared_izquierda=true.
+float32 left_line_angle_rad
+float32 left_line_distance_m
+bool left_line_valid

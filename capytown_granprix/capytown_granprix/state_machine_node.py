@@ -168,6 +168,15 @@ class StateMachineNode(Node):
             # de estados de cruce/PARE -- dejar en false para la
             # corrida real de competencia.
             'logica_dos_reglas': True,
+            # Que lado sigue logica_dos_reglas: true = pared IZQUIERDA
+            # (left_line_*, left/left_valid), false = pared DERECHA
+            # (right_line_*, right/right_valid, el original). Al
+            # cambiar de lado tambien se espejan las direcciones de
+            # giro: obstaculo al frente gira hacia el lado NO seguido
+            # (aleja de la pared que sigue) y "vacio" gira hacia el
+            # lado SEGUIDO (entra al hueco que aparecio ahi). Ver
+            # _lado_seguido_* y _direccion_* en el codigo.
+            'seguir_pared_izquierda': True,
             'velocidad_recta_mps': 0.15,
             # Correccion lateral de logica_dos_reglas: usa el AJUSTE DE
             # LINEA (right_line_*, angulo + distancia) en vez de la
@@ -186,13 +195,14 @@ class StateMachineNode(Node):
             # ciclo (100% ruido/transitorio) no alcanza para disparar un
             # giro, tiene que sostenerse.
             'frente_confirmaciones_ciclos': 3,
-            # Chequeo PERIODICO de la pared derecha, no deteccion
-            # continua por LiDAR (en la practica no distinguia bien
-            # "pared" de "hueco" -- ver commit anterior): cada
-            # distancia_chequeo_pared_m de avance en linea recta, se
-            # detiene por completo (PAUSA_CHEQUEO_PARED) tiempo_chequeo_
-            # pared_s y verifica con distancia PUNTUAL (z.right, no la
-            # linea) si el lado derecho esta ocupado o vacio.
+            # Chequeo PERIODICO del lado seguido (seguir_pared_
+            # izquierda), no deteccion continua por LiDAR (en la
+            # practica no distinguia bien "pared" de "hueco" -- ver
+            # commit anterior): cada distancia_chequeo_pared_m de
+            # avance en linea recta, se detiene por completo
+            # (PAUSA_CHEQUEO_PARED) tiempo_chequeo_pared_s y verifica
+            # con distancia PUNTUAL (no la linea) si el lado seguido
+            # esta ocupado o vacio.
             'distancia_chequeo_pared_m': 0.30,
             'tiempo_chequeo_pared_s': 1.0,
             # "Lado derecho vacio" tiene que sostenerse esta cantidad
@@ -268,6 +278,7 @@ class StateMachineNode(Node):
         self._control_rate_hz = float(g('control_rate_hz'))
         self._modo_simplificado = bool(g('modo_simplificado'))
         self._logica_dos_reglas = bool(g('logica_dos_reglas'))
+        self._seguir_izquierda = bool(g('seguir_pared_izquierda'))
         self._velocidad_recta = float(g('velocidad_recta_mps'))
         self._distancia_objetivo_recta = float(g('distancia_objetivo_m'))
         self._ganancia_angulo_recta = float(g('ganancia_angulo_recta'))
@@ -391,6 +402,42 @@ class StateMachineNode(Node):
         return False
 
     # ------------------------------------------------------------------
+    # Espejo derecha/izquierda de logica_dos_reglas (seguir_pared_izquierda)
+    # ------------------------------------------------------------------
+    # El ajuste de linea (angulo, distancia) de una pared PARALELA al
+    # pasillo tiene la MISMA relacion con el heading del robot sin
+    # importar de que lado se mide -- dos paredes paralelas se ven con
+    # la misma pendiente aparente desde un mismo error de heading, asi
+    # que el termino de ANGULO del Kp no cambia de signo entre lados.
+    # El termino de DISTANCIA si cambia: "muy cerca" siempre corrige
+    # alejandose de la pared que se sigue, y alejarse es IZQUIERDA
+    # cuando se sigue la derecha pero DERECHA cuando se sigue la
+    # izquierda -- de ahi el signo opuesto. (Derivado geometricamente,
+    # no adivinado -- ver commit que agrego este espejo.)
+    def _line_valid(self, z) -> bool:
+        return bool(z.left_line_valid if self._seguir_izquierda else z.right_line_valid)
+
+    def _line_angle(self, z) -> float:
+        return z.left_line_angle_rad if self._seguir_izquierda else z.right_line_angle_rad
+
+    def _line_distance(self, z) -> float:
+        return z.left_line_distance_m if self._seguir_izquierda else z.right_line_distance_m
+
+    def _lado_valid(self, z) -> bool:
+        return bool(z.left_valid if self._seguir_izquierda else z.right_valid)
+
+    def _lado_distancia(self, z) -> float:
+        return z.left if self._seguir_izquierda else z.right
+
+    def _direccion_obstaculo(self) -> str:
+        """Obstaculo al frente: gira ALEJANDOSE de la pared que se sigue."""
+        return 'DERECHA' if self._seguir_izquierda else 'IZQUIERDA'
+
+    def _direccion_vacio(self) -> str:
+        """Lado seguido vacio: gira ENTRANDO al hueco de ese mismo lado."""
+        return 'IZQUIERDA' if self._seguir_izquierda else 'DERECHA'
+
+    # ------------------------------------------------------------------
     # Estados
     # ------------------------------------------------------------------
     def _handle_iniciar(self):
@@ -447,43 +494,45 @@ class StateMachineNode(Node):
 
     def _handle_avanzar_paralelo_dos_reglas(self):
         """CUATRO REGLAS (ver logica_dos_reglas arriba), con AJUSTE DE
-        LINEA para el lado derecho (no distancia puntual) y
-        confirmacion de varios ciclos para el frente:
+        LINEA para el lado SEGUIDO (seguir_pared_izquierda decide si es
+        izquierda o derecha -- ver _line_*/_lado_*/_direccion_* arriba)
+        y confirmacion de varios ciclos para el frente:
 
         1. Avanzar recto mientras el frente este libre.
-        2. Si hay ajuste de linea valido (right_line_*) de la pared
-           derecha, corregir con Kp (angulo + distancia hacia
-           distancia_objetivo_m) -- distingue una pared vista en
-           diagonal (se corrige el angulo) de un obstaculo nuevo (no
-           encaja como continuacion de esa recta).
-        3. Chequeo PERIODICO de la pared derecha (no deteccion continua
+        2. Si hay ajuste de linea valido del lado seguido, corregir
+           con Kp (angulo + distancia hacia distancia_objetivo_m) --
+           distingue una pared vista en diagonal (se corrige el
+           angulo) de un obstaculo nuevo (no encaja como continuacion
+           de esa recta).
+        3. Chequeo PERIODICO del lado seguido (no deteccion continua
            por LiDAR -- en la practica no distinguia bien "pared" de
            "hueco", ver commit anterior), evaluado ANTES que el frente
            (regla 4): cada distancia_chequeo_pared_m de avance en
            linea recta (medido por odometria desde
            _avance_chequeo_start_xy), se detiene por completo y pasa a
-           PAUSA_CHEQUEO_PARED, que verifica con distancia PUNTUAL
-           (z.right, no la linea) si el lado derecho esta ocupado o
-           vacio -- si esta vacio, gira 90 grados DINAMICO a la
-           DERECHA (mismo mecanismo de la regla 4); si esta ocupado,
-           retoma el avance reiniciando el contador de distancia desde
-           ahi (evita reintentar en el mismo lugar).
+           PAUSA_CHEQUEO_PARED, que verifica con distancia PUNTUAL si
+           el lado seguido esta ocupado o vacio -- si esta vacio, gira
+           90 grados DINAMICO ENTRANDO al hueco (_direccion_vacio,
+           mismo mecanismo de la regla 4); si esta ocupado, retoma el
+           avance reiniciando el contador de distancia desde ahi
+           (evita reintentar en el mismo lugar).
         4. Si hay obstaculo al frente (front_narrow, cono angosto)
            sostenido durante frente_confirmaciones_ciclos seguidos, se
            detiene EN SECO y pasa por el mismo PAUSA_CHEQUEO_PARED de
            la regla 3 (detenido tiempo_chequeo_pared_s, 1s, y RECIEN
-           despues verifica con distancia PUNTUAL si el lado derecho
+           despues verifica con distancia PUNTUAL si el lado seguido
            esta ocupado o vacio) antes de girar -- si esta VACIO, gira
-           90 grados DINAMICO a la DERECHA; si esta OCUPADO, gira a la
-           IZQUIERDA (con self._chequeo_por_frente=True, PAUSA_CHEQUEO_
-           PARED sabe que aqui no puede "retomar avance" como en la
-           regla 3, porque el frente sigue bloqueado). Sin este
-           chequeo, un giro ciego a la izquierda en un rincon angosto
-           puede volver a encerrar al robot en el mismo bolsillo del
-           que viene (loop cerrado observado en sim_local/, ver commit
-           anterior). Se evalua DESPUES de la regla 3: en el ciclo
-           exacto en que ambas coincidirian, se prioriza el chequeo
-           periodico (el resultado es el mismo freno en seco).
+           90 grados DINAMICO ENTRANDO al hueco; si esta OCUPADO, gira
+           ALEJANDOSE de la pared seguida (_direccion_obstaculo, con
+           self._chequeo_por_frente=True, PAUSA_CHEQUEO_PARED sabe que
+           aqui no puede "retomar avance" como en la regla 3, porque
+           el frente sigue bloqueado). Sin este chequeo, un giro ciego
+           en un rincon angosto puede volver a encerrar al robot en el
+           mismo bolsillo del que viene (loop cerrado observado en
+           sim_local/, ver commit anterior). Se evalua DESPUES de la
+           regla 3: en el ciclo exacto en que ambas coincidirian, se
+           prioriza el chequeo periodico (el resultado es el mismo
+           freno en seco).
 
         No cuenta celdas ni pasa por ALINEAR (el giro dinamico ya lo
         reemplaza) -- portado tal cual de
@@ -497,7 +546,7 @@ class StateMachineNode(Node):
 
         if avance_chequeo >= self._distancia_chequeo_pared:
             self._publish_event(
-                EV.GIRO, f'avanzo {avance_chequeo:.2f}m -> detenido a verificar pared derecha'
+                EV.GIRO, f'avanzo {avance_chequeo:.2f}m -> detenido a verificar pared'
             )
             self._chequeo_por_frente = False
             self._publish_twist(Twist())
@@ -513,7 +562,7 @@ class StateMachineNode(Node):
         if self._contador_frente_dos_reglas >= self._frente_confirmaciones_ciclos:
             self._contador_frente_dos_reglas = 0
             self._publish_event(
-                EV.GIRO, f'obstaculo al frente ({z.front_narrow:.2f}m) -> detenido a verificar pared derecha'
+                EV.GIRO, f'obstaculo al frente ({z.front_narrow:.2f}m) -> detenido a verificar pared'
             )
             self._chequeo_por_frente = True
             self._publish_twist(Twist())
@@ -522,15 +571,22 @@ class StateMachineNode(Node):
             return
 
         cmd = Twist()
-        if not z.right_line_valid:
+        if not self._line_valid(z):
             # Perdida no confirmada todavia (podria ser un solo
             # vistazo de ruido): avanzar recto, sin corregir nada.
             cmd.linear.x = self._velocidad_recta
             self._publish_twist(cmd)
             return
-        error_distancia = self._distancia_objetivo_recta - z.right_line_distance_m
-        correccion = (self._ganancia_angulo_recta * z.right_line_angle_rad
-                      + self._ganancia_distancia_recta * error_distancia)
+        # Termino de ANGULO: mismo signo sin importar el lado (dos
+        # paredes paralelas se ven con la misma pendiente aparente
+        # desde un mismo error de heading). Termino de DISTANCIA:
+        # signo opuesto segun el lado (alejarse de la pared seguida es
+        # IZQUIERDA si se sigue la derecha, DERECHA si se sigue la
+        # izquierda) -- ver nota larga junto a _line_*/_lado_* arriba.
+        signo_distancia = -1.0 if self._seguir_izquierda else 1.0
+        error_distancia = self._distancia_objetivo_recta - self._line_distance(z)
+        correccion = (self._ganancia_angulo_recta * self._line_angle(z)
+                      + signo_distancia * self._ganancia_distancia_recta * error_distancia)
         cmd.linear.x = self._velocidad_recta
         cmd.angular.z = max(-self._angular_max_recta, min(self._angular_max_recta, correccion))
         self._publish_twist(cmd)
@@ -539,10 +595,11 @@ class StateMachineNode(Node):
         """Detenido tiempo_chequeo_pared_s (1s) -- ya sea por el
         chequeo PERIODICO (regla 3) o porque se confirmo un obstaculo
         al frente (regla 4, self._chequeo_por_frente=True) -- y RECIEN
-        despues verifica con distancia PUNTUAL (z.right, no el ajuste
-        de linea) si el lado derecho esta ocupado (pared) o vacio:
+        despues verifica con distancia PUNTUAL (no el ajuste de linea)
+        si el lado SEGUIDO esta ocupado (pared) o vacio:
 
-        - Si esta VACIO: gira a la DERECHA (en ambos casos).
+        - Si esta VACIO: gira ENTRANDO al hueco (_direccion_vacio, en
+          ambos casos).
         - Si esta OCUPADO:
           - Si vino del chequeo periodico (regla 3): retoma el avance
             normal, reiniciando el contador de distancia desde aqui
@@ -550,13 +607,14 @@ class StateMachineNode(Node):
             lugar).
           - Si vino de un obstaculo al frente (regla 4): NO puede
             simplemente retomar el avance (el frente sigue bloqueado)
-            -- gira a la IZQUIERDA.
+            -- gira ALEJANDOSE de la pared seguida (_direccion_
+            obstaculo).
 
         "Vacio" se confirma con chequeo_pared_confirmaciones_ciclos
-        lecturas SEGUIDAS (no una sola) -- un giro a la derecha es
-        una decision cara de revertir, asi que se exige sostener el
-        "vacio" varios ciclos (sigue detenido mientras confirma) antes
-        de comprometerse. "Ocupado" no necesita esta confirmacion (el
+        lecturas SEGUIDAS (no una sola) -- un giro es una decision
+        cara de revertir, asi que se exige sostener el "vacio" varios
+        ciclos (sigue detenido mientras confirma) antes de
+        comprometerse. "Ocupado" no necesita esta confirmacion (el
         peor caso es solo seguir derecho un poco mas)."""
         self._publish_twist(Twist())
         elapsed = (self.get_clock().now() - self._pausa_chequeo_start).nanoseconds / 1e9
@@ -564,31 +622,35 @@ class StateMachineNode(Node):
             return
 
         z = self._zones
-        derecha_libre = bool(z.right_valid and z.right > self._umbral_lado_libre)
+        lado_libre = bool(self._lado_valid(z) and self._lado_distancia(z) > self._umbral_lado_libre)
 
-        if derecha_libre:
+        if lado_libre:
             self._contador_derecha_libre += 1
             if self._contador_derecha_libre < self._chequeo_pared_confirmaciones_ciclos:
                 return
             self._contador_derecha_libre = 0
-            self._decision_actual = 'DERECHA'
+            self._decision_actual = self._direccion_vacio()
             self._yaw_inicio_giro = self._yaw
-            self._publish_event(EV.GIRO, f'lado derecho vacio ({z.right:.2f}m) -> DERECHA')
+            self._publish_event(
+                EV.GIRO, f'lado seguido vacio ({self._lado_distancia(z):.2f}m) -> {self._decision_actual}'
+            )
             self._set_state('GIRAR')
             return
 
         self._contador_derecha_libre = 0
 
         if self._chequeo_por_frente:
-            self._decision_actual = 'IZQUIERDA'
+            self._decision_actual = self._direccion_obstaculo()
             self._yaw_inicio_giro = self._yaw
-            self._publish_event(EV.GIRO, 'lado derecho ocupado, frente bloqueado -> IZQUIERDA')
+            self._publish_event(
+                EV.GIRO, f'lado seguido ocupado, frente bloqueado -> {self._decision_actual}'
+            )
             self._set_state('GIRAR')
             return
 
         # Ocupado (chequeo periodico): sigue habiendo pared -- retoma
         # el avance normal, reiniciando el contador de distancia.
-        self._publish_event(EV.GIRO, 'lado derecho ocupado -> retoma avance')
+        self._publish_event(EV.GIRO, 'lado seguido ocupado -> retoma avance')
         self._avance_chequeo_start_xy = (self._odom_x, self._odom_y)
         self._set_state('AVANZAR_PARALELO')
 
@@ -755,7 +817,7 @@ class StateMachineNode(Node):
         angulo_girado = abs(angle_diff(self._yaw, self._yaw_inicio_giro))
 
         if angulo_girado >= self._angulo_minimo_giro_rad:
-            if z.right_line_valid and abs(z.right_line_angle_rad) <= self._tolerancia_giro_rad:
+            if self._line_valid(z) and abs(self._line_angle(z)) <= self._tolerancia_giro_rad:
                 self._publish_twist(Twist())
                 self._grid.apply_turn(self._decision_actual)
                 self.get_logger().info(
