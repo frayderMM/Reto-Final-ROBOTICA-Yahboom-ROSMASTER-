@@ -54,18 +54,13 @@ class LidarProcessorNode(Node):
         self.declare_parameter('left_window_deg', [70.0, 110.0])
         self.declare_parameter('right_side_window_deg', [-110.0, -70.0])
         self.declare_parameter('min_puntos_linea', 6)
-        # Rango maximo PROPIO para el lado derecho (right_line_* y
-        # right_ahead_valid), mucho mas corto que max_range_use_m (4m).
-        # Sin este limite, el ajuste de recta encuentra CUALQUIER
-        # superficie dentro de 4m (una pared lejana, el otro lado de un
-        # espacio abierto) y la reporta como "pared valida" aunque la
-        # pared que se esta siguiendo (a ~12cm) ya termino -- por eso
-        # "perdida de pared" casi nunca se detectaba en la practica.
+        # Rango maximo PROPIO para el lado derecho (right_line_*),
+        # mucho mas corto que max_range_use_m (4m). Sin este limite, el
+        # ajuste de recta encuentra CUALQUIER superficie dentro de 4m
+        # (una pared lejana, el otro lado de un espacio abierto) y la
+        # reporta como "pared valida" aunque la pared que se esta
+        # siguiendo (a ~12cm) ya termino.
         self.declare_parameter('right_wall_max_range_m', 0.50)
-        # Ventana de ANTICIPACION: porcion mas adelantada de
-        # right_side_window_deg (ver LidarZones.msg::right_ahead_valid).
-        self.declare_parameter('right_ahead_window_deg', [-95.0, -70.0])
-        self.declare_parameter('min_puntos_adelanto', 4)
         self.declare_parameter('outlier_max_iter', 3)
         self.declare_parameter('outlier_residuo_m', 0.03)
 
@@ -86,8 +81,6 @@ class LidarProcessorNode(Node):
         self._right_side_window = ZoneWindow(*self.get_parameter('right_side_window_deg').value)
         self._min_puntos_linea = int(self.get_parameter('min_puntos_linea').value)
         self._right_wall_max_range = float(self.get_parameter('right_wall_max_range_m').value)
-        self._right_ahead_window = ZoneWindow(*self.get_parameter('right_ahead_window_deg').value)
-        self._min_puntos_adelanto = int(self.get_parameter('min_puntos_adelanto').value)
         self._outlier_max_iter = int(self.get_parameter('outlier_max_iter').value)
         self._outlier_residuo_m = float(self.get_parameter('outlier_residuo_m').value)
 
@@ -135,18 +128,6 @@ class LidarProcessorNode(Node):
         out.right_line_angle_rad = angulo
         out.right_line_distance_m = distancia_linea
         out.right_line_valid = valido_linea
-
-        # right_ahead_valid usa el mismo ajuste de recta con rechazo de
-        # outliers que right_line_* (no un simple conteo de puntos):
-        # cerca de una esquina, una pared perpendicular puede meter
-        # puntos en la ventana y un conteo simple los contaria como
-        # "pared todavia ahi" aunque la pared seguida ya termino.
-        _, _, valido_adelanto = fit_wall_line(
-            ranges, robot_angles, msg.range_min, range_max_right,
-            self._right_ahead_window, self._min_puntos_adelanto,
-            self._outlier_max_iter, self._outlier_residuo_m,
-        )
-        out.right_ahead_valid = valido_adelanto
 
         self._pub.publish(out)
 

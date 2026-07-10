@@ -51,12 +51,10 @@ VENT_FRONT_ESTRECHO = (-8.0, 8.0)  # cono mas angosto para logica simple: evita 
 VENT_LEFT = (70.0, 110.0)
 VENT_RIGHT_FRONT = (-75.0, -45.0)   # S1, usado por ALINEAR
 VENT_RIGHT_REAR = (-135.0, -105.0)  # S2, usado por ALINEAR
-VENT_LINEA_ADELANTO = (-95.0, -70.0)  # ANTICIPACION: porcion mas adelantada de VENT_LINEA,
-                                       # ver right_ahead_valid en lidar_processor_node.py
-RANGE_MAX_PARED = 0.50  # rango propio, corto, para VENT_LINEA/VENT_LINEA_ADELANTO: sin esto,
-                         # el ajuste encuentra CUALQUIER pared dentro de RANGE_MAX (4m) y nunca
-                         # detecta "perdida" aunque la pared seguida (~12cm) ya haya terminado
-                         # -- ver right_wall_max_range_m en lidar_processor_node.py
+RANGE_MAX_PARED = 0.50  # rango propio, corto, para VENT_LINEA: sin esto, el ajuste encuentra
+                         # CUALQUIER pared dentro de RANGE_MAX (4m) y sesga la correccion Kp
+                         # hacia una pared lejana -- ver right_wall_max_range_m en
+                         # lidar_processor_node.py
 
 INICIO_THETA = -math.pi / 2.0  # mirando hacia el "norte" (Y decreciente), hacia A3/A2/A1
 
@@ -117,23 +115,15 @@ def parse_args():
                     help='solo --logica simple: ciclos seguidos con el frente bloqueado antes '
                          'de girar (evita que un vistazo diagonal de un solo ciclo dispare un '
                          'giro innecesario)')
-    p.add_argument('--min-puntos-adelanto', type=int, default=4,
-                    help='solo --logica simple: puntos minimos en VENT_LINEA_ADELANTO (ventana '
-                         'de ANTICIPACION, mas adelantada que VENT_LINEA) para considerarla '
-                         'valida -- por debajo, se frena en seco de inmediato (un solo ciclo, '
-                         'sin confirmar varios) asumiendo que la pared se abrio (esquina '
-                         'concava/hueco a la derecha)')
-    p.add_argument('--tiempo-reanudar-avance', type=float, default=1.5,
-                    help='solo --logica simple: si tras PAUSA_LINEA_PERDIDA el lado derecho NO '
-                         'estaba libre, avanza recto a ciegas (ignora VENT_LINEA_ADELANTO, pero '
-                         'no el frente) por este tiempo antes de rearmar la deteccion de perdida '
-                         '-- si no, como no se movio, se dispararia la misma pausa de inmediato '
-                         'otra vez (loop infinito de parar/verificar)')
-    p.add_argument('--tiempo-verificar-hueco', type=float, default=2.0,
-                    help='solo --logica simple: al confirmar perdida de la pared derecha, se '
+    p.add_argument('--distancia-chequeo-pared', type=float, default=0.30,
+                    help='solo --logica simple: cada este avance (m) en linea recta, se detiene '
+                         'por completo a verificar el lado derecho (chequeo PERIODICO, no '
+                         'deteccion continua por LiDAR)')
+    p.add_argument('--tiempo-chequeo-pared', type=float, default=1.0,
+                    help='solo --logica simple: al llegar a --distancia-chequeo-pared, se '
                          'detiene este tiempo (s) y RECIEN despues verifica con distancia '
-                         'puntual (no la linea) si el lado derecho esta realmente libre, antes '
-                         'de comprometerse a girar')
+                         'puntual (no la linea) si el lado derecho esta ocupado o vacio -- si '
+                         'esta vacio, gira a la derecha; si esta ocupado, retoma el avance')
     p.add_argument('--angulo-minimo-giro', type=float, default=45.0,
                     help='giro DINAMICO: grados minimos (por odometria, solo de resguardo) '
                          'antes de poder detectar "ya quedo paralelo" y parar')
@@ -341,22 +331,15 @@ def _correr_logica_simple(args):
     2. Si hay ajuste de linea valido de la pared derecha, corregir con
        Kp (angulo + distancia hacia --distancia-objetivo) para
        mantenerse paralelo y cerca.
-    3. Si se PIERDE la ventana de ANTICIPACION (VENT_LINEA_ADELANTO,
-       porcion mas adelantada de VENT_LINEA -- ver --min-puntos-
-       adelanto), se frena EN SECO de inmediato (un solo ciclo, sin
-       confirmar varios: esta ventana mira mas hacia adelante, asi que
-       adelanta la perdida antes que VENT_LINEA). Ambas ventanas usan
-       RANGE_MAX_PARED (0.50m, no RANGE_MAX=4m) y el mismo ajuste de
-       recta con rechazo de outliers -- sin el rango acotado, el
-       ajuste encuentra cualquier pared lejana dentro de RANGE_MAX y
-       "perdida de pared" casi nunca se detecta, aunque la pared
-       seguida (a ~12cm) ya haya terminado. Al perderse, se detiene
-       por completo (PAUSA_LINEA_PERDIDA) durante --tiempo-verificar-
-       hueco (2s). RECIEN despues verifica con distancia puntual (no
-       la linea) si el lado derecho esta realmente libre -- evita
-       girar hacia un "hueco" que en realidad es algo demasiado cerca
-       para que el LiDAR lo mida (que se ve igual que "sin pared"). Si
-       esta libre, gira a la DERECHA; si no, retoma AVANZAR.
+    3. Chequeo PERIODICO de la pared derecha (no deteccion continua
+       por LiDAR -- en la practica no distinguia bien "pared" de
+       "hueco"): cada --distancia-chequeo-pared (30cm) de avance en
+       linea recta, se detiene por completo y verifica con distancia
+       PUNTUAL (VENT_LINEA con zona_min, no el ajuste de recta) si el
+       lado derecho esta ocupado o vacio, tras --tiempo-chequeo-pared
+       (1s) detenido. Si esta vacio, gira a la DERECHA; si esta
+       ocupado, retoma el avance reiniciando el contador de distancia
+       desde ahi (evita reintentar en el mismo lugar).
     4. Si detecta un obstaculo al frente (cono angosto, ver
        VENT_FRONT_ESTRECHO) sostenido durante --frente-confirmaciones
        ciclos seguidos, girar a la IZQUIERDA.
@@ -392,8 +375,8 @@ def _correr_logica_simple(args):
     ultima_decision_info = ''
     num_giros = 0
     contador_frente = 0
-    pausa_linea_perdida_inicio = None
-    reanudar_avance_inicio = None
+    pausa_chequeo_inicio = None
+    avance_chequeo_inicio_xy = (pose.x, pose.y)
 
     trayectoria_x, trayectoria_y = [pose.x], [pose.y]
     rng = np.random.default_rng(0)
@@ -427,46 +410,20 @@ def _correr_logica_simple(args):
                           f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
                     estado = 'GIRAR_IZQUIERDA'
                     ajuste = None
-                elif (reanudar_avance_inicio is not None
-                      and (paso - reanudar_avance_inicio) * DT < args.tiempo_reanudar_avance):
-                    # Venimos de PAUSA_LINEA_PERDIDA con "lado derecho
-                    # no esta libre": si volvieramos directo a chequear
-                    # VENT_LINEA_ADELANTO, seguiria perdida en el mismo
-                    # lugar (el robot no se movio) y se dispararia
-                    # PAUSA_LINEA_PERDIDA otra vez de inmediato -- loop
-                    # infinito de parar/verificar/parar sin avanzar
-                    # nunca. Avanza recto a ciegas por
-                    # --tiempo-reanudar-avance para salir de la zona
-                    # antes de rearmar la deteccion.
-                    ajuste = None
-                    pose = integrar(pose, args.velocidad, 0.0, DT)
                 else:
-                    reanudar_avance_inicio = None
-                    ajuste_adelanto = ajustar_linea_pared(
-                        angulos, rangos, *VENT_LINEA_ADELANTO,
-                        range_min=RANGE_MIN, range_max=RANGE_MAX_PARED,
-                        min_puntos=args.min_puntos_adelanto,
+                    avance_chequeo = math.hypot(
+                        pose.x - avance_chequeo_inicio_xy[0], pose.y - avance_chequeo_inicio_xy[1]
                     )
-                    ventana_adelanto_perdida = ajuste_adelanto is None
-
-                    if ventana_adelanto_perdida:
-                        # Ventana de ANTICIPACION perdida: frenar EN
-                        # SECO de inmediato, un solo ciclo, sin
-                        # confirmar varios (mira mas adelante que
-                        # VENT_LINEA, asi que adelanta la perdida).
-                        # Mismo ajuste con rechazo de outliers que
-                        # VENT_LINEA (no un simple conteo -- cerca de
-                        # una esquina, una pared perpendicular puede
-                        # meter puntos que un conteo simple contaria
-                        # como "pared todavia ahi"), y mismo rango
-                        # acotado RANGE_MAX_PARED (sin esto, encuentra
-                        # cualquier pared dentro de RANGE_MAX y nunca
-                        # detecta la perdida).
-                        ultima_decision_info = 'perdio la pared derecha -> detenido a verificar'
+                    if avance_chequeo >= args.distancia_chequeo_pared:
+                        # Chequeo PERIODICO (no deteccion continua por
+                        # LiDAR): cada --distancia-chequeo-pared de
+                        # avance, se detiene por completo a verificar
+                        # el lado derecho.
+                        ultima_decision_info = f'avanzo {avance_chequeo*100:.0f}cm -> detenido a verificar pared derecha'
                         print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
                               f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
-                        pausa_linea_perdida_inicio = paso
-                        estado = 'PAUSA_LINEA_PERDIDA'
+                        pausa_chequeo_inicio = paso
+                        estado = 'PAUSA_CHEQUEO_PARED'
                         ajuste = None
                     else:
                         ajuste = ajustar_linea_pared(angulos, rangos, *VENT_LINEA,
@@ -482,31 +439,29 @@ def _correr_logica_simple(args):
                             w = max(-args.angular_max, min(args.angular_max, correccion))
                             pose = integrar(pose, args.velocidad, w, DT)
 
-            elif estado == 'PAUSA_LINEA_PERDIDA':
-                # Detenido --tiempo-verificar-hueco (2s) apenas se
-                # confirma la perdida de la pared derecha, y RECIEN
-                # despues chequea si el lado derecho esta realmente
-                # libre (distancia puntual, no la linea) antes de
-                # comprometerse a girar -- evita girar hacia un hueco
-                # que en realidad no esta libre (ver
-                # _handle_pausa_linea_perdida en state_machine_node.py).
+            elif estado == 'PAUSA_CHEQUEO_PARED':
+                # Detenido --tiempo-chequeo-pared (1s) al llegar a
+                # --distancia-chequeo-pared de avance, y RECIEN
+                # despues chequea con distancia puntual (no la linea)
+                # si el lado derecho esta ocupado o vacio (ver
+                # _handle_pausa_chequeo_pared en state_machine_node.py).
                 ajuste = None
-                if (paso - pausa_linea_perdida_inicio) * DT >= args.tiempo_verificar_hueco:
+                if (paso - pausa_chequeo_inicio) * DT >= args.tiempo_chequeo_pared:
                     right_d, right_v = zona_min(angulos, rangos, VENT_LINEA)
                     derecha_libre = right_v and right_d > args.umbral_lado_libre
                     if derecha_libre:
                         num_giros += 1
                         direccion_giro = 'DERECHA'
                         yaw_inicio_giro = pose.theta
-                        ultima_decision_info = f'lado derecho libre ({right_d*100:.0f}cm) -> DERECHA'
+                        ultima_decision_info = f'lado derecho vacio ({right_d*100:.0f}cm) -> DERECHA'
                         print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
                               f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
                         estado = 'GIRAR_IZQUIERDA'  # mismo estado, sirve para cualquier direccion
                     else:
-                        ultima_decision_info = 'lado derecho no esta libre -> retoma avance'
+                        ultima_decision_info = 'lado derecho ocupado -> retoma avance'
                         print(f'[paso {paso}] x={pose.x*100:.0f}cm y={pose.y*100:.0f}cm '
                               f'theta={math.degrees(pose.theta):+.0f} | {ultima_decision_info}')
-                        reanudar_avance_inicio = paso
+                        avance_chequeo_inicio_xy = (pose.x, pose.y)
                         estado = 'AVANZAR'
 
             elif estado == 'GIRAR_IZQUIERDA':
@@ -523,6 +478,7 @@ def _correr_logica_simple(args):
                 if terminado:
                     print(f'[paso {paso}] GIRO TERMINADO (paralelo) {direccion_giro} '
                           f'theta={math.degrees(pose.theta):+.1f} girado={math.degrees(angulo_girado):.0f}°')
+                    avance_chequeo_inicio_xy = (pose.x, pose.y)
                     estado = 'AVANZAR'
 
             trayectoria_x.append(pose.x)
@@ -636,7 +592,7 @@ def _dibujar(ax, pose, pasillo, angulos, rangos, ajuste, estado, decision_info,
         'AVANZAR_PARALELO': 'black', 'PAUSA_GIRO': 'firebrick',
         'GIRAR': 'purple', 'ALINEAR': 'teal',
         'AVANZAR': 'black', 'GIRAR_IZQUIERDA': 'purple',
-        'PAUSA_LINEA_PERDIDA': 'firebrick',
+        'PAUSA_CHEQUEO_PARED': 'firebrick',
     }.get(estado, 'black')
     accion = _descripcion_accion(estado, decision_actual, args)
     info = f'estado={estado}  celdas={num_celdas}  giros={num_giros}\n{decision_info}'

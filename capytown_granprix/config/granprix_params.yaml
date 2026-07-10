@@ -62,24 +62,12 @@ lidar_processor:
     # veces. Segunda capa de defensa ademas de la ventana angosta.
     outlier_max_iter: 3
     outlier_residuo_m: 0.03
-    # Rango maximo PROPIO para el lado derecho (right_line_* y
-    # right_ahead_valid), mucho mas corto que max_range_use_m (4m
-    # arriba). Sin este limite, el ajuste encuentra CUALQUIER
-    # superficie dentro de 4m (pared lejana, otro lado de un espacio
-    # abierto) y la reporta como "pared valida" aunque la pared
-    # seguida (a ~12cm) ya termino -- la perdida de pared casi nunca
-    # se detectaba en la practica por este motivo.
+    # Rango maximo PROPIO para el lado derecho (right_line_*), mucho
+    # mas corto que max_range_use_m (4m arriba). Sin este limite, el
+    # ajuste encuentra CUALQUIER superficie dentro de 4m (pared
+    # lejana, otro lado de un espacio abierto) y la reporta como
+    # "pared valida" aunque la pared seguida (a ~12cm) ya termino.
     right_wall_max_range_m: 0.50
-
-    # Ventana de ANTICIPACION: porcion mas ADELANTADA (mas cerca del
-    # frente) de right_side_window_deg. Como mira mas hacia adelante en
-    # el pasillo, es la primera en quedarse sin puntos cuando se acerca
-    # un hueco/esquina en la pared derecha -- se usa en state_machine
-    # (right_ahead_valid) para DETENERSE de inmediato apenas se pierde,
-    # sin esperar varios ciclos de confirmacion. Mismo ajuste de recta
-    # con rechazo de outliers que right_line_* (no un simple conteo).
-    right_ahead_window_deg: [-95.0, -70.0]
-    min_puntos_adelanto: 4
 
 wall_follower:
   ros__parameters:
@@ -159,11 +147,12 @@ state_machine:
     # de pared con wall_follow_cmd): avanzar recto mientras el frente
     # este libre, corregir con el AJUSTE DE LINEA (angulo + distancia,
     # no distancia puntual -- evita confundir una pared vista en
-    # diagonal con un obstaculo real) hacia distancia_objetivo_m; si se
-    # PIERDE la ventana de ANTICIPACION (right_ahead_valid, un solo
-    # ciclo, sin confirmar varios -- frena en seco de inmediato,
-    # esquina concava/hueco a la derecha), gira a la DERECHA; si hay
-    # obstaculo al frente sostenido
+    # diagonal con un obstaculo real) hacia distancia_objetivo_m; cada
+    # distancia_chequeo_pared_m de avance se detiene tiempo_chequeo_
+    # pared_s y verifica con distancia PUNTUAL (right/right_valid, no
+    # la linea) si el lado derecho esta ocupado o vacio -- si esta
+    # vacio, gira a la DERECHA; si esta ocupado, retoma el avance; si
+    # hay obstaculo al frente sostenido
     # frente_confirmaciones_ciclos seguidos, gira a la IZQUIERDA.
     # Ambos giros son DINAMICOS -- no un angulo fijo, siguen girando
     # (leyendo la linea EN VIVO) hasta quedar paralelos a la pared
@@ -180,22 +169,17 @@ state_machine:
     ganancia_distancia_recta: 2.0
     angular_max_recta_radps: 0.6
     frente_confirmaciones_ciclos: 3
-    # Perdida de pared derecha: se detecta de inmediato (un solo ciclo,
-    # sin confirmacion de varios) con la ventana de ANTICIPACION
-    # (right_ahead_valid, ver lidar_processor arriba) -- para frenar en
-    # seco apenas se pierde, no varios ciclos despues. Al confirmarse,
-    # se detiene este tiempo y RECIEN despues verifica si el lado
-    # derecho esta realmente libre (con right/right_valid puntual, no
-    # la linea) antes de girar -- evita girar hacia un hueco que en
-    # realidad no esta libre (ver PAUSA_LINEA_PERDIDA en
-    # state_machine_node.py).
-    tiempo_verificar_hueco_s: 2.0
-    # Si tras PAUSA_LINEA_PERDIDA resulta que el lado derecho NO estaba
-    # libre, el robot avanza recto a ciegas (ignora right_ahead_valid,
-    # pero no el frente) por este tiempo antes de rearmar la deteccion
-    # de perdida -- si no, como no se movio, se dispararia la misma
-    # pausa de inmediato otra vez (loop infinito de parar/verificar).
-    tiempo_reanudar_avance_s: 1.5
+    # Chequeo PERIODICO de la pared derecha (reemplaza la deteccion
+    # continua por LiDAR, que en la practica no distinguia bien
+    # "pared" de "hueco"): cada distancia_chequeo_pared_m de avance en
+    # linea recta, se detiene por completo tiempo_chequeo_pared_s y
+    # verifica con distancia PUNTUAL (right/right_valid, no la linea)
+    # si el lado derecho esta ocupado (pared) o vacio -- si esta
+    # vacio, gira a la DERECHA; si esta ocupado, retoma el avance
+    # (reinicia el contador de distancia desde ahi), ver
+    # PAUSA_CHEQUEO_PARED en state_machine_node.py.
+    distancia_chequeo_pared_m: 0.30
+    tiempo_chequeo_pared_s: 1.0
     # Giro dinamico: resguardo minimo (no confundir con la pared vieja)
     # y tope maximo de seguridad (si nunca encuentra pared paralela).
     angulo_minimo_giro_deg: 45.0

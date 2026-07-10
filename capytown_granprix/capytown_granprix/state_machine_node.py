@@ -20,11 +20,12 @@ DETALLE RETO 3.md):
     detenido entre "ya decidi" y "empiezo a girar", para que el giro se
     vea como un movimiento separado del avance.
 
-    En logica_dos_reglas, si se pierde la pared derecha (en vez de
-    obstaculo al frente) se pasa por ``PAUSA_LINEA_PERDIDA`` en vez de
-    PAUSA_GIRO: detenido ``tiempo_verificar_hueco_s`` (2s) y RECIEN
-    despues verifica si el lado derecho esta realmente libre antes de
-    comprometerse a girar -- ver ``_handle_pausa_linea_perdida``.
+    En logica_dos_reglas, cada ``distancia_chequeo_pared_m`` de avance
+    en linea recta se pasa por ``PAUSA_CHEQUEO_PARED`` en vez de
+    PAUSA_GIRO: detenido ``tiempo_chequeo_pared_s`` (1s) y verifica con
+    distancia PUNTUAL (no el ajuste de linea) si el lado derecho esta
+    ocupado (pared) o vacio antes de comprometerse a girar -- ver
+    ``_handle_pausa_chequeo_pared``.
 
 Se agrega un estado adicional ``DETENIDO`` (fuera de la lista pedida)
 solo como red de seguridad ante un limite de celdas recorridas sin
@@ -80,6 +81,7 @@ class StateMachineNode(Node):
 
         # Variables de trabajo por estado
         self._cell_start_xy = (0.0, 0.0)
+        self._avance_chequeo_start_xy = (0.0, 0.0)
         self._num_celdas = 0
         self._cruce_muestras = None
         self._derecha_libre = False
@@ -97,8 +99,7 @@ class StateMachineNode(Node):
         self._espera_obstaculo_inicio = None
         self._contador_frente_dos_reglas = 0
         self._yaw_inicio_giro = 0.0
-        self._pausa_linea_perdida_start = None
-        self._reanudar_avance_start = None
+        self._pausa_chequeo_start = None
 
         self._STATE_HANDLERS = {
             'INICIAR': self._handle_iniciar,
@@ -107,7 +108,7 @@ class StateMachineNode(Node):
             'BUSCAR_PARE': self._handle_buscar_pare,
             'DECIDIR': self._handle_decidir,
             'PAUSA_GIRO': self._handle_pausa_giro,
-            'PAUSA_LINEA_PERDIDA': self._handle_pausa_linea_perdida,
+            'PAUSA_CHEQUEO_PARED': self._handle_pausa_chequeo_pared,
             'GIRAR': self._handle_girar,
             'ALINEAR': self._handle_alinear,
             'VERIFICAR_META': self._handle_verificar_meta,
@@ -183,21 +184,15 @@ class StateMachineNode(Node):
             # ciclo (100% ruido/transitorio) no alcanza para disparar un
             # giro, tiene que sostenerse.
             'frente_confirmaciones_ciclos': 3,
-            # Una vez detectada la perdida de la pared derecha
-            # (right_ahead_valid=false, ver lidar_processor -- ventana
-            # de ANTICIPACION, un solo ciclo, sin confirmar varios: se
-            # frena en seco de inmediato apenas se pierde), se
-            # detiene por completo este tiempo (PAUSA_LINEA_PERDIDA)
-            # antes de verificar si el lado derecho esta REALMENTE
-            # libre (z.right puntual, no la linea) y recien ahi girar.
-            'tiempo_verificar_hueco_s': 2.0,
-            # Si tras PAUSA_LINEA_PERDIDA resulta que el lado derecho
-            # NO estaba libre, el robot avanza recto a ciegas (ignora
-            # right_ahead_valid, pero no el frente) por este tiempo
-            # antes de rearmar la deteccion de perdida -- si no, como
-            # no se movio, se dispararia la misma pausa de inmediato
-            # otra vez (loop infinito de parar/verificar/parar).
-            'tiempo_reanudar_avance_s': 1.5,
+            # Chequeo PERIODICO de la pared derecha, no deteccion
+            # continua por LiDAR (en la practica no distinguia bien
+            # "pared" de "hueco" -- ver commit anterior): cada
+            # distancia_chequeo_pared_m de avance en linea recta, se
+            # detiene por completo (PAUSA_CHEQUEO_PARED) tiempo_chequeo_
+            # pared_s y verifica con distancia PUNTUAL (z.right, no la
+            # linea) si el lado derecho esta ocupado o vacio.
+            'distancia_chequeo_pared_m': 0.30,
+            'tiempo_chequeo_pared_s': 1.0,
             # Giro DINAMICO de logica_dos_reglas: no gira a angulo_giro_deg
             # fijo -- gira hasta quedar paralelo a la pared siguiente
             # (right_line_angle_rad ~0, con tolerancia_giro_deg), leyendo
@@ -272,8 +267,8 @@ class StateMachineNode(Node):
         self._ganancia_distancia_recta = float(g('ganancia_distancia_recta'))
         self._angular_max_recta = float(g('angular_max_recta_radps'))
         self._frente_confirmaciones_ciclos = int(g('frente_confirmaciones_ciclos'))
-        self._tiempo_verificar_hueco = float(g('tiempo_verificar_hueco_s'))
-        self._tiempo_reanudar_avance = float(g('tiempo_reanudar_avance_s'))
+        self._distancia_chequeo_pared = float(g('distancia_chequeo_pared_m'))
+        self._tiempo_chequeo_pared = float(g('tiempo_chequeo_pared_s'))
         self._contador_frente_dos_reglas = 0
         self._angulo_minimo_giro_rad = math.radians(float(g('angulo_minimo_giro_deg')))
         self._angulo_maximo_giro_rad = math.radians(float(g('angulo_maximo_giro_deg')))
@@ -399,6 +394,7 @@ class StateMachineNode(Node):
 
     def _begin_avanzar_paralelo(self):
         self._cell_start_xy = (self._odom_x, self._odom_y)
+        self._avance_chequeo_start_xy = (self._odom_x, self._odom_y)
 
     def _handle_avanzar_paralelo(self):
         if self._logica_dos_reglas:
@@ -444,7 +440,7 @@ class StateMachineNode(Node):
     def _handle_avanzar_paralelo_dos_reglas(self):
         """CUATRO REGLAS (ver logica_dos_reglas arriba), con AJUSTE DE
         LINEA para el lado derecho (no distancia puntual) y
-        confirmacion de varios ciclos para el frente y para la pared:
+        confirmacion de varios ciclos para el frente:
 
         1. Avanzar recto mientras el frente este libre.
         2. Si hay ajuste de linea valido (right_line_*) de la pared
@@ -452,20 +448,17 @@ class StateMachineNode(Node):
            distancia_objetivo_m) -- distingue una pared vista en
            diagonal (se corrige el angulo) de un obstaculo nuevo (no
            encaja como continuacion de esa recta).
-        3. Si se PIERDE la ventana de ANTICIPACION (right_ahead_valid=
-           false -- porcion mas adelantada de right_side_window_deg,
-           ver LidarZones.msg), se frena EN SECO de inmediato (un solo
-           ciclo, sin confirmar varios: esta ventana mira mas hacia
-           adelante que right_line_*, por lo que ya adelanta la
-           perdida antes de que la ventana principal tambien la
-           pierda) y pasa a PAUSA_LINEA_PERDIDA a verificar si es un
-           hueco real antes de girar 90 grados DINAMICO a la DERECHA
-           (mismo mecanismo de la regla 4). Si PAUSA_LINEA_PERDIDA
-           determina que el lado derecho NO estaba libre, se avanza a
-           ciegas tiempo_reanudar_avance_s antes de volver a chequear
-           right_ahead_valid -- si no, como el robot no se movio,
-           volveria a dispararse esta misma pausa de inmediato (loop
-           infinito de parar/verificar/parar sin avanzar nunca).
+        3. Chequeo PERIODICO de la pared derecha (no deteccion continua
+           por LiDAR -- en la practica no distinguia bien "pared" de
+           "hueco", ver commit anterior): cada distancia_chequeo_
+           pared_m de avance en linea recta (medido por odometria
+           desde _avance_chequeo_start_xy), se detiene por completo y
+           pasa a PAUSA_CHEQUEO_PARED, que verifica con distancia
+           PUNTUAL (z.right, no la linea) si el lado derecho esta
+           ocupado o vacio -- si esta vacio, gira 90 grados DINAMICO a
+           la DERECHA (mismo mecanismo de la regla 4); si esta
+           ocupado, retoma el avance reiniciando el contador de
+           distancia desde ahi (evita reintentar en el mismo lugar).
         4. Si hay obstaculo al frente (front_narrow, cono angosto)
            sostenido durante frente_confirmaciones_ciclos seguidos,
            girar 90 grados DINAMICO a la IZQUIERDA (ignora derecha/
@@ -495,31 +488,17 @@ class StateMachineNode(Node):
             self._set_state('PAUSA_GIRO')
             return
 
-        if self._reanudar_avance_start is not None:
-            # Venimos de PAUSA_LINEA_PERDIDA con "lado derecho no esta
-            # libre": si volvieramos directo a chequear right_ahead_
-            # valid, seguiria perdida en el mismo lugar (el robot no se
-            # movio) y se dispararia PAUSA_LINEA_PERDIDA otra vez de
-            # inmediato -- loop infinito de parar/verificar/parar sin
-            # avanzar nunca. Avanza recto a ciegas (ignora right_ahead_
-            # valid, pero NO el frente) por tiempo_reanudar_avance_s
-            # para salir de la zona antes de rearmar la deteccion.
-            elapsed_reanudar = (self.get_clock().now() - self._reanudar_avance_start).nanoseconds / 1e9
-            if elapsed_reanudar < self._tiempo_reanudar_avance:
-                cmd = Twist()
-                cmd.linear.x = self._velocidad_recta
-                self._publish_twist(cmd)
-                return
-            self._reanudar_avance_start = None
+        dx = self._odom_x - self._avance_chequeo_start_xy[0]
+        dy = self._odom_y - self._avance_chequeo_start_xy[1]
+        avance_chequeo = math.hypot(dx, dy)
 
-        if not z.right_ahead_valid:
-            # Ventana de ANTICIPACION perdida: frenar EN SECO de
-            # inmediato, un solo ciclo, sin esperar confirmacion de
-            # varios (ver right_ahead_valid en LidarZones.msg).
-            self._publish_event(EV.GIRO, 'perdio la pared derecha -> detenido a verificar')
+        if avance_chequeo >= self._distancia_chequeo_pared:
+            self._publish_event(
+                EV.GIRO, f'avanzo {avance_chequeo:.2f}m -> detenido a verificar pared derecha'
+            )
             self._publish_twist(Twist())
-            self._pausa_linea_perdida_start = self.get_clock().now()
-            self._set_state('PAUSA_LINEA_PERDIDA')
+            self._pausa_chequeo_start = self.get_clock().now()
+            self._set_state('PAUSA_CHEQUEO_PARED')
             return
 
         cmd = Twist()
@@ -536,36 +515,33 @@ class StateMachineNode(Node):
         cmd.angular.z = max(-self._angular_max_recta, min(self._angular_max_recta, correccion))
         self._publish_twist(cmd)
 
-    def _handle_pausa_linea_perdida(self):
-        """Se detiene tiempo_verificar_hueco_s (2s) apenas se confirma
-        que perdio la pared derecha, y RECIEN despues chequea si el
-        lado derecho esta realmente libre (z.right, no la linea) antes
-        de comprometerse a girar -- evita girar hacia un hueco que en
-        realidad no esta libre (p.ej. algo demasiado cerca para que el
-        LiDAR lo mida, que se ve igual que "sin pared" en la linea)."""
+    def _handle_pausa_chequeo_pared(self):
+        """Cada distancia_chequeo_pared_m de avance en linea recta, se
+        detiene tiempo_chequeo_pared_s (1s) y RECIEN despues verifica
+        con distancia PUNTUAL (z.right, no el ajuste de linea) si el
+        lado derecho esta ocupado (pared) o vacio -- si esta vacio,
+        gira a la DERECHA; si esta ocupado, retoma el avance
+        reiniciando el contador de distancia desde la posicion actual
+        (evita volver a dispararse de inmediato en el mismo lugar)."""
         self._publish_twist(Twist())
-        elapsed = (self.get_clock().now() - self._pausa_linea_perdida_start).nanoseconds / 1e9
-        if elapsed < self._tiempo_verificar_hueco:
+        elapsed = (self.get_clock().now() - self._pausa_chequeo_start).nanoseconds / 1e9
+        if elapsed < self._tiempo_chequeo_pared:
             return
 
         z = self._zones
         derecha_libre = bool(z.right_valid and z.right > self._umbral_lado_libre)
 
         if not derecha_libre:
-            # No estaba realmente libre: retoma el avance normal en
-            # vez de forzar un giro hacia algo que no es un hueco real.
-            # Arma el cooldown de reanudar_avance -- si no, el robot no
-            # se movio nada y right_ahead_valid seguiria perdida en el
-            # mismo lugar, disparando esta pausa otra vez de inmediato
-            # (loop infinito de parar/verificar/parar sin avanzar).
-            self._publish_event(EV.GIRO, 'lado derecho no esta libre -> retoma avance')
-            self._reanudar_avance_start = self.get_clock().now()
+            # Ocupado: sigue habiendo pared -- retoma el avance normal,
+            # reiniciando el contador de distancia desde aqui.
+            self._publish_event(EV.GIRO, 'lado derecho ocupado -> retoma avance')
+            self._avance_chequeo_start_xy = (self._odom_x, self._odom_y)
             self._set_state('AVANZAR_PARALELO')
             return
 
         self._decision_actual = 'DERECHA'
         self._yaw_inicio_giro = self._yaw
-        self._publish_event(EV.GIRO, f'lado derecho libre ({z.right:.2f}m) -> DERECHA')
+        self._publish_event(EV.GIRO, f'lado derecho vacio ({z.right:.2f}m) -> DERECHA')
         self._set_state('GIRAR')
 
     def _handle_detectar_cruce(self):
@@ -737,6 +713,7 @@ class StateMachineNode(Node):
                 self.get_logger().info(
                     f'GIRO TERMINADO (paralelo): girado={math.degrees(angulo_girado):.0f} deg'
                 )
+                self._begin_avanzar_paralelo()
                 self._set_state('AVANZAR_PARALELO')
                 return
 
@@ -747,6 +724,7 @@ class StateMachineNode(Node):
                 f'GIRO TERMINADO (tope de seguridad, sin pared paralela): '
                 f'girado={math.degrees(angulo_girado):.0f} deg'
             )
+            self._begin_avanzar_paralelo()
             self._set_state('AVANZAR_PARALELO')
             return
 

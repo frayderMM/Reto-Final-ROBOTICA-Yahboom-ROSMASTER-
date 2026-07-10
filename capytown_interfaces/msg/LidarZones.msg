@@ -34,18 +34,3 @@ bool front_narrow_valid
 float32 right_line_angle_rad     # angulo de la pared respecto al frente del robot
 float32 right_line_distance_m    # distancia perpendicular del robot a la pared
 bool right_line_valid
-
-# Ventana de ANTICIPACION: porcion mas ADELANTADA (mas cerca del
-# frente) de right_side_window_deg, ej. [-95,-70] vs [-110,-70] de la
-# ventana principal. Como esta porcion mira mas hacia adelante en el
-# pasillo, es la primera en quedarse sin puntos cuando se acerca un
-# hueco/esquina en la pared derecha -- antes de que la ventana
-# principal (right_line_*, usada para el Kp) tambien lo pierda. Mismo
-# ajuste de recta con rechazo de outliers que right_line_* (no un
-# simple conteo de puntos: cerca de una esquina, una pared perpendicular
-# puede meter puntos en la ventana y un conteo simple los contaria como
-# "pared todavia ahi"), y mismo right_wall_max_range_m acotado. Se usa
-# para DETENERSE de inmediato apenas se pierde (sin esperar varios
-# ciclos de confirmacion como right_line_valid), ver
-# state_machine_node.py::_handle_avanzar_paralelo_dos_reglas.
-bool right_ahead_valid
