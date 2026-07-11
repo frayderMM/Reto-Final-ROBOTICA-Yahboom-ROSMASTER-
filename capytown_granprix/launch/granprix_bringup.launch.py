@@ -1,8 +1,8 @@
 """Launch principal del Reto Final - Gran Prix CapyTown.
 
-Lanza los 5 nodos del reto (lidar_processor, wall_follower,
-state_machine, metrics_logger y, opcionalmente, stop_sign_detector)
-con los parametros de ``config/granprix_params.yaml``.
+Lanza los nodos del reto (lidar_processor, wall_follower,
+state_machine, metrics_logger, web_dashboard y, opcionalmente,
+stop_sign_detector) con los parametros de ``config/granprix_params.yaml``.
 
 Este launch NO lanza el bringup del robot (driver LiDAR, driver de
 motores, microROS, camara): eso lo hace el paquete base del robot
@@ -10,9 +10,12 @@ motores, microROS, camara): eso lo hace el paquete base del robot
 correr antes, por separado.
 
 Argumentos:
-    ronda        (1|2)        ronda de la competencia (ver DETALLE RETO 3.md)
-    usar_camara  (true|false) activa el nodo de deteccion de PARE
-    params_file  (ruta)       archivo de parametros a usar
+    ronda          (1|2)        ronda de la competencia (ver DETALLE RETO 3.md)
+    usar_camara    (true|false) activa el nodo de deteccion de PARE/META por camara
+    usar_dashboard (true|false) activa el emisor del tablero web de diagnostico
+                                 (ver web/dashboard.html, se abre en una laptop
+                                 aparte apuntando a la IP del robot)
+    params_file    (ruta)       archivo de parametros a usar
 
 Ejemplos:
     ros2 launch capytown_granprix granprix_bringup.launch.py
@@ -47,12 +50,18 @@ def generate_launch_description():
     usar_camara_arg = DeclareLaunchArgument(
         'usar_camara',
         default_value='true',
-        description='Activa el nodo de deteccion de PARE por camara.',
+        description='Activa el nodo de deteccion de PARE/META por camara.',
+    )
+    usar_dashboard_arg = DeclareLaunchArgument(
+        'usar_dashboard',
+        default_value='true',
+        description='Activa el emisor del tablero web de diagnostico (ver web/dashboard.html).',
     )
 
     params_file = LaunchConfiguration('params_file')
     ronda = LaunchConfiguration('ronda')
     usar_camara = LaunchConfiguration('usar_camara')
+    usar_dashboard = LaunchConfiguration('usar_dashboard')
 
     lidar_processor_node = Node(
         package='capytown_granprix',
@@ -95,13 +104,24 @@ def generate_launch_description():
         parameters=[params_file, {'ronda': ParameterValue(ronda, value_type=int)}],
     )
 
+    web_dashboard_node = Node(
+        package='capytown_granprix',
+        executable='web_dashboard_node',
+        name='web_dashboard',
+        output='screen',
+        parameters=[params_file, {'usar_camara': ParameterValue(usar_camara, value_type=bool)}],
+        condition=IfCondition(usar_dashboard),
+    )
+
     return LaunchDescription([
         params_file_arg,
         ronda_arg,
         usar_camara_arg,
+        usar_dashboard_arg,
         lidar_processor_node,
         wall_follower_node,
         state_machine_node,
         stop_sign_detector_node,
         metrics_logger_node,
+        web_dashboard_node,
     ])

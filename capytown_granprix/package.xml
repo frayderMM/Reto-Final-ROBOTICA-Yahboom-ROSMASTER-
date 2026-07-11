@@ -8,8 +8,9 @@
     laberinto Gran Prix CapyTown (Yahboom ROSMASTER R2 + Raspberry Pi 5,
     ROS 2 Humble). Incluye lectura/segmentacion de LiDAR, control de
     avance paralelo, maquina de estados de decision en intersecciones,
-    deteccion opcional de senales PARE por camara y registro de
-    metricas en CSV.
+    deteccion opcional de senales PARE y META por camara, registro de
+    metricas en CSV y un tablero web de diagnostico (JSON liviano
+    emitido por el robot, renderizado en el navegador de una laptop).
   </description>
   <maintainer email="fraydermezamorveli@gmail.com">frayderMM</maintainer>
   <license>Apache-2.0</license>

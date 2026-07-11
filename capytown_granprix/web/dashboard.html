@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>CapyTown Gran Prix - Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --border: #2a2f3a; --text: #e6e8ec;
+    --muted: #8a8f9c; --accent: #4fc3f7; --ok: #4caf50; --warn: #ff9800; --bad: #f44336;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif; font-size: 14px;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header input { background: #0d0f13; border: 1px solid var(--border); color: var(--text);
+    padding: 6px 8px; border-radius: 4px; width: 160px; }
+  header button { background: var(--accent); border: none; color: #001018; font-weight: 600;
+    padding: 6px 14px; border-radius: 4px; cursor: pointer; }
+  header .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--bad); }
+  header .dot.ok { background: var(--ok); }
+  main {
+    display: grid; grid-template-columns: 1fr 1fr 320px; gap: 12px; padding: 12px;
+    max-width: 1400px; margin: 0 auto;
+  }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--muted); margin: 0 0 8px; }
+  canvas { width: 100%; background: #0a0c10; border-radius: 4px; display: block; }
+  .badges { display: flex; gap: 8px; flex-wrap: wrap; }
+  .badge { padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;
+    background: #262b35; color: var(--muted); }
+  .badge.on.pare { background: var(--bad); color: white; }
+  .badge.on.meta { background: var(--ok); color: white; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table td { padding: 3px 4px; border-bottom: 1px solid var(--border); }
+  table td.k { color: var(--muted); }
+  table td.v { text-align: right; font-variant-numeric: tabular-nums; }
+  #estado { font-size: 20px; font-weight: 700; color: var(--accent); }
+  #eventos { max-height: 220px; overflow-y: auto; font-size: 12px; }
+  #eventos div { padding: 3px 0; border-bottom: 1px solid var(--border); }
+  #eventos .tipo { color: var(--accent); font-weight: 600; }
+  #camera { width: 100%; border-radius: 4px; display: block; background: #0a0c10; }
+  .grid2 { grid-column: span 2; }
+</style>
+</head>
+<body>
+<header>
+  <h1>CapyTown Gran Prix</h1>
+  <input id="ip" placeholder="IP del robot (ej. 10.42.0.1)" value="10.42.0.1">
+  <input id="puerto" placeholder="puerto" value="8080" style="width:70px">
+  <button onclick="conectar()">Conectar</button>
+  <span class="dot" id="dot"></span>
+  <span id="dot-txt" style="color:var(--muted)">desconectado</span>
+</header>
+<main>
+  <div class="panel">
+    <h2>LiDAR (marco del robot, frente = arriba)</h2>
+    <canvas id="cv-lidar" width="500" height="500"></canvas>
+  </div>
+  <div class="panel">
+    <h2>Trayectoria (relativa al arranque)</h2>
+    <canvas id="cv-tray" width="500" height="500"></canvas>
+  </div>
+  <div style="display:flex; flex-direction:column; gap:12px;">
+    <div class="panel">
+      <h2>Estado</h2>
+      <div id="estado">-</div>
+      <div class="badges" style="margin-top:8px">
+        <span class="badge" id="badge-pare">PARE</span>
+        <span class="badge" id="badge-meta">META</span>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Camara</h2>
+      <img id="camera" alt="sin imagen">
+    </div>
+    <div class="panel">
+      <h2>Zonas / comando</h2>
+      <table id="tabla-zonas"></table>
+    </div>
+  </div>
+  <div class="panel grid2">
+    <h2>Eventos</h2>
+    <div id="eventos"></div>
+  </div>
+</main>
+<script>
+let url = null;
+let timer = null;
+const trayectoria = [];
+
+function conectar() {
+  const ip = document.getElementById('ip').value.trim();
+  const puerto = document.getElementById('puerto').value.trim();
+  url = `http://${ip}:${puerto}/data`;
+  if (timer) clearInterval(timer);
+  timer = setInterval(actualizar, 300);
+  actualizar();
+}
+
+function setDot(ok) {
+  document.getElementById('dot').className = 'dot' + (ok ? ' ok' : '');
+  document.getElementById('dot-txt').textContent = ok ? 'conectado' : 'desconectado';
+}
+
+async function actualizar() {
+  if (!url) return;
+  try {
+    const resp = await fetch(url, { cache: 'no-store' });
+    if (!resp.ok) throw new Error('http ' + resp.status);
+    const d = await resp.json();
+    setDot(true);
+    render(d);
+  } catch (e) {
+    setDot(false);
+  }
+}
+
+function render(d) {
+  document.getElementById('estado').textContent = d.estado || '-';
+
+  const bp = document.getElementById('badge-pare');
+  bp.className = 'badge' + (d.pare_detectado ? ' on pare' : '');
+  const bm = document.getElementById('badge-meta');
+  bm.className = 'badge' + (d.meta_detectado ? ' on meta' : '');
+
+  renderLidar(d.lidar || []);
+  renderTrayectoria(d.pos_rel || [0, 0], d.yaw_rel_deg || 0, d.trayectoria || []);
+  renderZonas(d);
+  renderEventos(d.eventos || []);
+  renderCamera(d.camera);
+}
+
+function renderLidar(pts) {
+  const cv = document.getElementById('cv-lidar');
+  const ctx = cv.getContext('2d');
+  const w = cv.width, h = cv.height;
+  ctx.clearRect(0, 0, w, h);
+  const rangoM = 2.5;
+  const escala = (Math.min(w, h) / 2 - 20) / rangoM;
+  const cx = w / 2, cy = h / 2;
+
+  // grilla
+  ctx.strokeStyle = '#1f2530';
+  ctx.lineWidth = 1;
+  for (let r = 0.5; r <= rangoM; r += 0.5) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * escala, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, h); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(w, cy); ctx.stroke();
+
+  // puntos: x=adelante (arriba en pantalla), y=izquierda (izquierda en pantalla)
+  ctx.fillStyle = '#4fc3f7';
+  for (const [x, y] of pts) {
+    const px = cx - y * escala;
+    const py = cy - x * escala;
+    ctx.fillRect(px - 1, py - 1, 2, 2);
+  }
+
+  // robot
+  ctx.fillStyle = '#e6e8ec';
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 8);
+  ctx.lineTo(cx - 6, cy + 6);
+  ctx.lineTo(cx + 6, cy + 6);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function renderTrayectoria(pos, yawDeg, tray) {
+  const cv = document.getElementById('cv-tray');
+  const ctx = cv.getContext('2d');
+  const w = cv.width, h = cv.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const pts = tray.length ? tray : [pos];
+  let maxR = 0.5;
+  for (const [x, y] of pts) maxR = Math.max(maxR, Math.abs(x), Math.abs(y));
+  const escala = (Math.min(w, h) / 2 - 30) / maxR;
+  const cx = w / 2, cy = h / 2;
+
+  ctx.strokeStyle = '#1f2530';
+  ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, h); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(w, cy); ctx.stroke();
+
+  ctx.strokeStyle = '#4fc3f7';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  pts.forEach(([x, y], i) => {
+    const px = cx + x * escala, py = cy - y * escala;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  });
+  ctx.stroke();
+
+  // inicio (verde) y posicion actual (flecha con heading)
+  if (pts.length) {
+    const [x0, y0] = pts[0];
+    ctx.fillStyle = '#4caf50';
+    ctx.beginPath();
+    ctx.arc(cx + x0 * escala, cy - y0 * escala, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const px = cx + pos[0] * escala, py = cy - pos[1] * escala;
+  const rad = (yawDeg * Math.PI) / 180;
+  ctx.save();
+  ctx.translate(px, py);
+  ctx.rotate(-rad);
+  ctx.fillStyle = '#e6e8ec';
+  ctx.beginPath();
+  ctx.moveTo(0, -9); ctx.lineTo(-7, 7); ctx.lineTo(7, 7);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function fila(k, v) {
+  return `<tr><td class="k">${k}</td><td class="v">${v}</td></tr>`;
+}
+
+function renderZonas(d) {
+  const z = d.zonas || {};
+  const filas = [
+    fila('cmd v / w', `${(d.cmd_v ?? 0).toFixed(2)} m/s / ${(d.cmd_w ?? 0).toFixed(2)} rad/s`),
+    fila('pos (x,y)', `${(d.pos_rel?.[0] ?? 0).toFixed(2)}, ${(d.pos_rel?.[1] ?? 0).toFixed(2)} m`),
+    fila('heading', `${(d.yaw_rel_deg ?? 0).toFixed(0)}°`),
+    fila('frente', z.front_valid ? `${z.front.toFixed(2)} m` : '-'),
+    fila('frente angosto', z.front_narrow_valid ? `${z.front_narrow.toFixed(2)} m` : '-'),
+    fila('derecha (punto)', z.right_valid ? `${z.right.toFixed(2)} m` : '-'),
+    fila('izquierda (punto)', z.left_valid ? `${z.left.toFixed(2)} m` : '-'),
+    fila('linea derecha', z.right_line_valid
+      ? `${z.right_line_distance_m.toFixed(2)} m, ${z.right_line_angle_deg.toFixed(0)}°` : '-'),
+    fila('linea izquierda', z.left_line_valid
+      ? `${z.left_line_distance_m.toFixed(2)} m, ${z.left_line_angle_deg.toFixed(0)}°` : '-'),
+  ];
+  document.getElementById('tabla-zonas').innerHTML = filas.join('');
+}
+
+function renderEventos(eventos) {
+  const cont = document.getElementById('eventos');
+  cont.innerHTML = eventos.slice().reverse().map(
+    e => `<div><span class="tipo">[${e.tipo}]</span> ${e.detalle}</div>`
+  ).join('');
+}
+
+function renderCamera(camera) {
+  const img = document.getElementById('camera');
+  if (camera && camera.src) {
+    img.src = camera.src;
+  }
+}
+</script>
+</body>
+</html>

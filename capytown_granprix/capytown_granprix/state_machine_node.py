@@ -77,6 +77,7 @@ class StateMachineNode(Node):
         self._yaw = 0.0
         self._odom_ready = False
         self._pare_activo = False
+        self._meta_activo = False
         self._wall_follow_cmd = Twist()
 
         # Variables de trabajo por estado
@@ -131,6 +132,7 @@ class StateMachineNode(Node):
         )
         self.create_subscription(Odometry, self._odom_topic, self._on_odom, 10)
         self.create_subscription(Bool, self._pare_topic, self._on_pare, 10)
+        self.create_subscription(Bool, self._meta_topic, self._on_meta, 10)
         self.create_subscription(Twist, self._wall_follow_topic, self._on_wall_follow, 10)
 
         self.create_timer(1.0 / self._control_rate_hz, self._on_timer)
@@ -150,6 +152,11 @@ class StateMachineNode(Node):
             'cmd_vel_topic': '/cmd_vel',
             'wall_follow_topic': '/wall_follow/cmd_vel_suggestion',
             'pare_topic': '/pare_detectado',
+            # Cartel META (verde) detectado por camara (ver
+            # stop_sign_detector_node). Se usa incluso en
+            # logica_dos_reglas (que no cuenta celdas, y por eso no
+            # tiene otra forma de saber que llego a la meta).
+            'meta_topic': '/meta_detectado',
             'event_topic': '/robot_event',
             'robot_state_topic': '/robot_state',
             'usar_camara': True,
@@ -282,6 +289,7 @@ class StateMachineNode(Node):
         self._cmd_vel_topic = g('cmd_vel_topic')
         self._wall_follow_topic = g('wall_follow_topic')
         self._pare_topic = g('pare_topic')
+        self._meta_topic = g('meta_topic')
         self._event_topic = g('event_topic')
         self._robot_state_topic = g('robot_state_topic')
 
@@ -356,6 +364,9 @@ class StateMachineNode(Node):
 
     def _on_pare(self, msg: Bool):
         self._pare_activo = bool(msg.data)
+
+    def _on_meta(self, msg: Bool):
+        self._meta_activo = bool(msg.data)
 
     def _on_wall_follow(self, msg: Twist):
         self._wall_follow_cmd = msg
@@ -553,7 +564,20 @@ class StateMachineNode(Node):
         No cuenta celdas ni pasa por ALINEAR (el giro dinamico ya lo
         reemplaza) -- portado tal cual de
         sim_local/run_sim_laberinto.py::_correr_logica_simple.
+
+        REGLA 0 (maxima prioridad, evaluada antes que las 4 de arriba):
+        si la camara confirma el cartel META (verde, self._meta_activo,
+        ver stop_sign_detector_node), se detiene y pasa a META de
+        inmediato -- logica_dos_reglas no cuenta celdas, asi que sin
+        esto no tiene NINGUNA otra forma de saber que llego.
         """
+        if self._meta_activo:
+            self._publish_twist(Twist())
+            self._publish_event(EV.META, 'meta (cartel verde) detectada por camara')
+            self._terminado = True
+            self._set_state('META')
+            return
+
         z = self._zones
 
         dx = self._odom_x - self._avance_chequeo_start_xy[0]

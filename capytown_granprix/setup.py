@@ -42,6 +42,8 @@ setup(
             'capytown_granprix.metrics_logger_node:main',
             'unique_line_node = '
             'capytown_granprix.unique_line_node:main',
+            'web_dashboard_node = '
+            'capytown_granprix.web_dashboard_node:main',
         ],
     },
 )
