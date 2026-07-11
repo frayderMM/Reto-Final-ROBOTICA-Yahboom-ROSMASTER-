@@ -139,6 +139,12 @@ state_machine:
     # Cartel META (verde) detectado por camara -- usado incluso en
     # logica_dos_reglas para saber que llego (no cuenta celdas).
     meta_topic: /meta_detectado
+    # Buzzer: std_msgs/Int32 con duracion en ms, convencion mas comun
+    # del stack Yahboom ROSMASTER -- NO CONFIRMADA en este robot,
+    # verificar con `ros2 topic list` / `ros2 interface show <tipo>`
+    # antes de confiar en el pitido de PARE. Si el topico real es
+    # otro, cambiar aca.
+    buzzer_topic: /beep
     event_topic: /robot_event
     robot_state_topic: /robot_state
 
@@ -289,8 +295,16 @@ state_machine:
     velocidad_alineacion_angular_radps: 0.3
 
     # --- Senal de PARE ---
+    # En logica_dos_reglas se usa via PAUSA_PARE (parar + pitido), no
+    # solo por la logica de grilla original.
     tiempo_pare_s: 3.0
     tiempo_espera_camara_s: 0.5
+
+    # --- Senal de META ---
+    # Al confirmar META (verde), cuanto avanza en linea recta antes de
+    # detenerse y terminar (AVANCE_META) -- no corta el avance
+    # exactamente encima del cartel / en el primer frame confirmado.
+    avance_meta_m: 0.30
 
     # --- Mapa / meta (DETALLE_PISTA.md) ---
     celda_inicio: A4

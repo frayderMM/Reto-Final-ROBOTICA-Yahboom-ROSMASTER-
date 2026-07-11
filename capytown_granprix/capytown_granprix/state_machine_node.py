@@ -27,6 +27,13 @@ DETALLE RETO 3.md):
     ocupado (pared) o vacio antes de comprometerse a girar -- ver
     ``_handle_pausa_chequeo_pared``.
 
+    Tambien en logica_dos_reglas, la camara (``stop_sign_detector_node``)
+    puede interrumpir el avance normal con maxima prioridad: PARE
+    (rojo) confirmado -> ``PAUSA_PARE`` (detenido ``tiempo_pare_s``,
+    3s, con pitido) antes de retomar; META (verde) confirmado ->
+    ``AVANCE_META`` (avanza ``avance_meta_m``, 30cm) y RECIEN AHI
+    ``META`` (termina). Ver ``_handle_pausa_pare``/``_handle_avance_meta``.
+
 Se agrega un estado adicional ``DETENIDO`` (fuera de la lista pedida)
 solo como red de seguridad ante un limite de celdas recorridas sin
 llegar a la meta (evita loops infinitos por fallas de sensor); no
@@ -48,7 +55,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSPresetProfiles
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool, Int32, String
 
 from capytown_interfaces.msg import LidarZones, RobotEvent
 from capytown_granprix import event_types as EV
@@ -78,6 +85,9 @@ class StateMachineNode(Node):
         self._odom_ready = False
         self._pare_activo = False
         self._meta_activo = False
+        self._pare_ya_respetado = False
+        self._pausa_pare_start = None
+        self._pitido_pendiente = []
         self._wall_follow_cmd = Twist()
 
         # Variables de trabajo por estado
@@ -115,6 +125,8 @@ class StateMachineNode(Node):
             'DECIDIR': self._handle_decidir,
             'PAUSA_GIRO': self._handle_pausa_giro,
             'PAUSA_CHEQUEO_PARED': self._handle_pausa_chequeo_pared,
+            'PAUSA_PARE': self._handle_pausa_pare,
+            'AVANCE_META': self._handle_avance_meta,
             'GIRAR': self._handle_girar,
             'AVANCE_GIRO_VACIO': self._handle_avance_giro_vacio,
             'ALINEAR': self._handle_alinear,
@@ -126,6 +138,13 @@ class StateMachineNode(Node):
         self._cmd_pub = self.create_publisher(Twist, self._cmd_vel_topic, 10)
         self._event_pub = self.create_publisher(RobotEvent, self._event_topic, 10)
         self._state_pub = self.create_publisher(String, self._robot_state_topic, 10)
+        # Buzzer del robot: NO CONFIRMADO en este robot especifico (ver
+        # nota en PROPIEDADES_ROBOT.md) -- std_msgs/Int32 con la
+        # duracion en ms es la convencion mas comun en el stack
+        # Yahboom ROSMASTER, pero verificar con `ros2 topic list` /
+        # `ros2 interface show <tipo>` antes de confiar en el pitido;
+        # si el topico real es otro, cambiar buzzer_topic en el yaml.
+        self._buzzer_pub = self.create_publisher(Int32, self._buzzer_topic, 10)
 
         self.create_subscription(
             LidarZones, self._lidar_zones_topic, self._on_zones, QoSPresetProfiles.SENSOR_DATA.value
@@ -157,6 +176,14 @@ class StateMachineNode(Node):
             # logica_dos_reglas (que no cuenta celdas, y por eso no
             # tiene otra forma de saber que llego a la meta).
             'meta_topic': '/meta_detectado',
+            # Buzzer -- ver nota junto a self._buzzer_pub sobre
+            # verificar el topico real en este robot.
+            'buzzer_topic': '/beep',
+            # Al confirmar META (verde), cuanto avanza en linea recta
+            # antes de detenerse y terminar (ver AVANCE_META /
+            # _handle_avance_meta) -- no corta el avance exactamente
+            # encima del cartel / en el primer frame confirmado.
+            'avance_meta_m': 0.30,
             'event_topic': '/robot_event',
             'robot_state_topic': '/robot_state',
             'usar_camara': True,
@@ -290,6 +317,8 @@ class StateMachineNode(Node):
         self._wall_follow_topic = g('wall_follow_topic')
         self._pare_topic = g('pare_topic')
         self._meta_topic = g('meta_topic')
+        self._buzzer_topic = g('buzzer_topic')
+        self._avance_meta = float(g('avance_meta_m'))
         self._event_topic = g('event_topic')
         self._robot_state_topic = g('robot_state_topic')
 
@@ -565,18 +594,38 @@ class StateMachineNode(Node):
         reemplaza) -- portado tal cual de
         sim_local/run_sim_laberinto.py::_correr_logica_simple.
 
-        REGLA 0 (maxima prioridad, evaluada antes que las 4 de arriba):
-        si la camara confirma el cartel META (verde, self._meta_activo,
-        ver stop_sign_detector_node), se detiene y pasa a META de
-        inmediato -- logica_dos_reglas no cuenta celdas, asi que sin
-        esto no tiene NINGUNA otra forma de saber que llego.
+        REGLA 0a (maxima prioridad): si la camara confirma el cartel
+        META (verde, self._meta_activo, ver stop_sign_detector_node),
+        avanza avance_meta_m (30cm) mas y RECIEN AHI se detiene y
+        termina (AVANCE_META) -- logica_dos_reglas no cuenta celdas,
+        asi que sin esto no tiene NINGUNA otra forma de saber que
+        llego.
+        REGLA 0b: si la camara confirma el cartel PARE (rojo,
+        self._pare_activo), se detiene tiempo_pare_s (3s) emitiendo un
+        pitido de aviso (PAUSA_PARE) antes de retomar -- una vez
+        respetado, no se vuelve a disparar mientras el mismo cartel
+        siga en camara (self._pare_ya_respetado, se reinicia cuando la
+        camara deja de verlo).
         """
         if self._meta_activo:
-            self._publish_twist(Twist())
-            self._publish_event(EV.META, 'meta (cartel verde) detectada por camara')
-            self._terminado = True
-            self._set_state('META')
+            self._publish_event(
+                EV.META, f'meta (cartel verde) detectada -> avanzando {self._avance_meta:.2f}m'
+            )
+            self._avance_fijo_inicio_xy = (self._odom_x, self._odom_y)
+            self._set_state('AVANCE_META')
             return
+
+        if self._pare_activo:
+            if not self._pare_ya_respetado:
+                self._pare_ya_respetado = True
+                self._publish_event(EV.PARE_DETECTADO, 'PARE (cartel rojo) detectado por camara')
+                self._publish_twist(Twist())
+                self._emitir_pitido_pare()
+                self._pausa_pare_start = self.get_clock().now()
+                self._set_state('PAUSA_PARE')
+                return
+        else:
+            self._pare_ya_respetado = False
 
         z = self._zones
 
@@ -801,6 +850,38 @@ class StateMachineNode(Node):
         if elapsed >= self._tiempo_pausa_antes_girar:
             self._set_state('GIRAR')
 
+    def _emitir_pitido_pare(self):
+        """Dispara el patron de pitido "pi pi piiiiiiiiiiiiiiiiii" (dos
+        cortos + uno largo) al detectar PARE -- publica Int32 con la
+        duracion en ms (convencion Yahboom mas comun, NO CONFIRMADA en
+        este robot, ver nota junto a self._buzzer_pub). El primer
+        pitido se dispara ya mismo; el resto queda en self._pitido_
+        pendiente para que _handle_pausa_pare los dispare en su
+        momento segun tiempo transcurrido -- nunca time.sleep, mismo
+        estilo de "temporizador propio" que el resto del nodo."""
+        patron = [(0.0, 150), (0.3, 150), (0.6, 1500)]  # (offset_s, duracion_ms)
+        self._buzzer_pub.publish(Int32(data=patron[0][1]))
+        self._pitido_pendiente = list(patron[1:])
+
+    def _handle_pausa_pare(self):
+        """Detenido tiempo_pare_s (3s) tras detectar el cartel PARE
+        (rojo) por camara, disparando el resto del patron de pitido en
+        su momento (self._pitido_pendiente, ver _emitir_pitido_pare)
+        antes de retomar el avance."""
+        self._publish_twist(Twist())
+        elapsed = (self.get_clock().now() - self._pausa_pare_start).nanoseconds / 1e9
+
+        while self._pitido_pendiente and elapsed >= self._pitido_pendiente[0][0]:
+            _, duracion_ms = self._pitido_pendiente.pop(0)
+            self._buzzer_pub.publish(Int32(data=duracion_ms))
+
+        if elapsed < self._tiempo_pare:
+            return
+
+        self._publish_event(EV.PARE_RESPETADO, f'PARE respetado ({self._tiempo_pare:.0f}s)')
+        self._begin_avanzar_paralelo()
+        self._set_state('AVANZAR_PARALELO')
+
     def _compute_turn_target(self, yaw: float, direction: str) -> float:
         if direction == 'DERECHA':
             delta = -self._angulo_giro_rad
@@ -925,6 +1006,27 @@ class StateMachineNode(Node):
         self._publish_event(EV.GIRO, f'avanzo {avance:.2f}m, {motivo} -> retoma avance')
         self._begin_avanzar_paralelo()
         self._set_state('AVANZAR_PARALELO')
+
+    def _handle_avance_meta(self):
+        """Tras detectar el cartel META (verde) por camara, avanza
+        avance_meta_m (30cm) en linea recta -- sin correccion lateral,
+        mismo estilo que AVANCE_GIRO_VACIO -- y RECIEN AHI se detiene
+        y termina. No corta el avance exactamente encima del cartel /
+        en el primer frame confirmado."""
+        dx = self._odom_x - self._avance_fijo_inicio_xy[0]
+        dy = self._odom_y - self._avance_fijo_inicio_xy[1]
+        avance = math.hypot(dx, dy)
+
+        if avance < self._avance_meta:
+            cmd = Twist()
+            cmd.linear.x = self._velocidad_recta
+            self._publish_twist(cmd)
+            return
+
+        self._publish_twist(Twist())
+        self._publish_event(EV.META, f'avanzo {avance:.2f}m tras META -> detenido')
+        self._terminado = True
+        self._set_state('META')
 
     def _handle_alinear(self):
         if self._alinear_start is None:
