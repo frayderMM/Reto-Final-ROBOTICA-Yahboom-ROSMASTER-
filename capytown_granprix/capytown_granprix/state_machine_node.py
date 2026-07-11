@@ -850,12 +850,15 @@ class StateMachineNode(Node):
     def _emitir_pitido_pare(self):
         """Dispara el patron de pitido "pi pi piiiiiiiiiiiiiiiiii" (dos
         cortos + uno largo) al detectar PARE -- publica UInt16 con la
-        duracion en ms (/beep, confirmado en pista). El primer pitido
-        se dispara ya mismo; el resto queda en self._pitido_pendiente
-        para que _handle_pausa_pare los dispare en su momento segun
-        tiempo transcurrido -- nunca time.sleep, mismo estilo de
-        "temporizador propio" que el resto del nodo."""
-        patron = [(0.0, 150), (0.3, 150), (0.6, 1500)]  # (offset_s, duracion_ms)
+        duracion en ms a /beep. Patron y timing confirmados en pista
+        (equivalente a
+        ``ros2 topic pub --once /beep std_msgs/msg/UInt16 "{data: 250}"; sleep 0.10; ...``):
+        250ms, 100ms de pausa, 250ms, 100ms de pausa, 1000ms. El primer
+        pitido se dispara ya mismo; el resto queda en self._pitido_
+        pendiente para que _handle_pausa_pare los dispare en su
+        momento segun tiempo transcurrido -- nunca time.sleep, mismo
+        estilo de "temporizador propio" que el resto del nodo."""
+        patron = [(0.0, 250), (0.10, 250), (0.20, 1000)]  # (offset_s, duracion_ms)
         self._buzzer_pub.publish(UInt16(data=patron[0][1]))
         self._pitido_pendiente = list(patron[1:])
 
