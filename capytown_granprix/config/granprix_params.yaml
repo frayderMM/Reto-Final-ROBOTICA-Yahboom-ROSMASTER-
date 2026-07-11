@@ -139,11 +139,9 @@ state_machine:
     # Cartel META (verde) detectado por camara -- usado incluso en
     # logica_dos_reglas para saber que llego (no cuenta celdas).
     meta_topic: /meta_detectado
-    # Buzzer: std_msgs/Int32 con duracion en ms, convencion mas comun
-    # del stack Yahboom ROSMASTER -- NO CONFIRMADA en este robot,
-    # verificar con `ros2 topic list` / `ros2 interface show <tipo>`
-    # antes de confiar en el pitido de PARE. Si el topico real es
-    # otro, cambiar aca.
+    # Buzzer: std_msgs/UInt16 con duracion en ms -- confirmado en
+    # pista con `ros2 topic info /beep -v` (lo suscribe YB_Car_Node,
+    # el driver base del robot).
     buzzer_topic: /beep
     event_topic: /robot_event
     robot_state_topic: /robot_state

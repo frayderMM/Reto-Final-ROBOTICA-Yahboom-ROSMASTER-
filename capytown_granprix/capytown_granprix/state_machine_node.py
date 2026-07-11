@@ -55,7 +55,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSPresetProfiles
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
-from std_msgs.msg import Bool, Int32, String
+from std_msgs.msg import Bool, String, UInt16
 
 from capytown_interfaces.msg import LidarZones, RobotEvent
 from capytown_granprix import event_types as EV
@@ -138,13 +138,10 @@ class StateMachineNode(Node):
         self._cmd_pub = self.create_publisher(Twist, self._cmd_vel_topic, 10)
         self._event_pub = self.create_publisher(RobotEvent, self._event_topic, 10)
         self._state_pub = self.create_publisher(String, self._robot_state_topic, 10)
-        # Buzzer del robot: NO CONFIRMADO en este robot especifico (ver
-        # nota en PROPIEDADES_ROBOT.md) -- std_msgs/Int32 con la
-        # duracion en ms es la convencion mas comun en el stack
-        # Yahboom ROSMASTER, pero verificar con `ros2 topic list` /
-        # `ros2 interface show <tipo>` antes de confiar en el pitido;
-        # si el topico real es otro, cambiar buzzer_topic en el yaml.
-        self._buzzer_pub = self.create_publisher(Int32, self._buzzer_topic, 10)
+        # Buzzer del robot: /beep, std_msgs/UInt16 con la duracion en
+        # ms (confirmado en pista con `ros2 topic info /beep -v` --
+        # el driver YB_Car_Node lo suscribe).
+        self._buzzer_pub = self.create_publisher(UInt16, self._buzzer_topic, 10)
 
         self.create_subscription(
             LidarZones, self._lidar_zones_topic, self._on_zones, QoSPresetProfiles.SENSOR_DATA.value
@@ -852,15 +849,14 @@ class StateMachineNode(Node):
 
     def _emitir_pitido_pare(self):
         """Dispara el patron de pitido "pi pi piiiiiiiiiiiiiiiiii" (dos
-        cortos + uno largo) al detectar PARE -- publica Int32 con la
-        duracion en ms (convencion Yahboom mas comun, NO CONFIRMADA en
-        este robot, ver nota junto a self._buzzer_pub). El primer
-        pitido se dispara ya mismo; el resto queda en self._pitido_
-        pendiente para que _handle_pausa_pare los dispare en su
-        momento segun tiempo transcurrido -- nunca time.sleep, mismo
-        estilo de "temporizador propio" que el resto del nodo."""
+        cortos + uno largo) al detectar PARE -- publica UInt16 con la
+        duracion en ms (/beep, confirmado en pista). El primer pitido
+        se dispara ya mismo; el resto queda en self._pitido_pendiente
+        para que _handle_pausa_pare los dispare en su momento segun
+        tiempo transcurrido -- nunca time.sleep, mismo estilo de
+        "temporizador propio" que el resto del nodo."""
         patron = [(0.0, 150), (0.3, 150), (0.6, 1500)]  # (offset_s, duracion_ms)
-        self._buzzer_pub.publish(Int32(data=patron[0][1]))
+        self._buzzer_pub.publish(UInt16(data=patron[0][1]))
         self._pitido_pendiente = list(patron[1:])
 
     def _handle_pausa_pare(self):
@@ -873,7 +869,7 @@ class StateMachineNode(Node):
 
         while self._pitido_pendiente and elapsed >= self._pitido_pendiente[0][0]:
             _, duracion_ms = self._pitido_pendiente.pop(0)
-            self._buzzer_pub.publish(Int32(data=duracion_ms))
+            self._buzzer_pub.publish(UInt16(data=duracion_ms))
 
         if elapsed < self._tiempo_pare:
             return
