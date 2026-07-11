@@ -27,12 +27,16 @@ DETALLE RETO 3.md):
     ocupado (pared) o vacio antes de comprometerse a girar -- ver
     ``_handle_pausa_chequeo_pared``.
 
-    Tambien en logica_dos_reglas, la camara (``stop_sign_detector_node``)
-    puede interrumpir el avance normal con maxima prioridad: PARE
-    (rojo) confirmado -> ``PAUSA_PARE`` (detenido ``tiempo_pare_s``,
-    3s, con pitido) antes de retomar; META (verde) confirmado ->
-    ``AVANCE_META`` (avanza ``avance_meta_m``, 30cm) y RECIEN AHI
-    ``META`` (termina). Ver ``_handle_pausa_pare``/``_handle_avance_meta``.
+    La camara (``stop_sign_detector_node``) puede interrumpir lo que
+    sea con maxima prioridad: el cartel PARE (rojo) confirmado se
+    revisa en ``_handle_pare_global`` DENTRO de ``_on_timer``, antes
+    de despachar al handler del estado actual -- interrumpe CUALQUIER
+    estado (incluso a mitad de un giro), no solo AVANZAR_PARALELO ->
+    ``PAUSA_PARE`` (detenido ``tiempo_pare_s``, 3s, con pitido) antes
+    de retomar. En logica_dos_reglas, ademas, META (verde) confirmado
+    (solo evaluado en AVANZAR_PARALELO) -> ``AVANCE_META`` (avanza
+    ``avance_meta_m``, 30cm) y RECIEN AHI ``META`` (termina). Ver
+    ``_handle_pare_global``/``_handle_pausa_pare``/``_handle_avance_meta``.
 
 Se agrega un estado adicional ``DETENIDO`` (fuera de la lista pedida)
 solo como red de seguridad ante un limite de celdas recorridas sin
@@ -404,10 +408,48 @@ class StateMachineNode(Node):
         if not (self._odom_ready and self._zones_ready):
             return
 
+        if self._handle_pare_global():
+            return
+
         if self._handle_obstaculo_frente():
             return
 
         self._STATE_HANDLERS[self._state]()
+
+    def _handle_pare_global(self) -> bool:
+        """Regla de MAXIMA prioridad, activa en CUALQUIER estado (aun
+        a mitad de un giro) -- si la camara confirma el cartel PARE
+        (rojo), interrumpe lo que este haciendo ya mismo y pasa a
+        PAUSA_PARE (detenido tiempo_pare_s con pitido). "No importa en
+        que estado esta": se evalua ANTES de despachar al handler del
+        estado actual, no adentro de un estado en particular.
+
+        No se dispara de nuevo mientras el mismo cartel siga en camara
+        (self._pare_ya_respetado, se reinicia recien cuando la camara
+        deja de verlo) ni si ya esta en PAUSA_PARE/META/DETENIDO (para
+        no reiniciar la propia pausa, ni interrumpir la llegada a la
+        meta o la parada de emergencia). Retorna True si este ciclo ya
+        publico un comando (el llamador debe omitir el despacho normal
+        de estados)."""
+        if self._state in ('PAUSA_PARE', 'META', 'DETENIDO'):
+            return False
+
+        if not self._pare_activo:
+            self._pare_ya_respetado = False
+            return False
+
+        if self._pare_ya_respetado:
+            return False
+
+        self._pare_ya_respetado = True
+        self._publish_event(
+            EV.PARE_DETECTADO, f'PARE (cartel rojo) detectado por camara -- interrumpe {self._state}'
+        )
+        self._publish_twist(Twist())
+        self._emitir_pitido_pare()
+        self._pausa_pare_start = self.get_clock().now()
+        self._set_state('PAUSA_PARE')
+        return True
 
     def _handle_obstaculo_frente(self) -> bool:
         """Regla general de seguridad, activa en cualquier estado.
@@ -591,18 +633,17 @@ class StateMachineNode(Node):
         reemplaza) -- portado tal cual de
         sim_local/run_sim_laberinto.py::_correr_logica_simple.
 
-        REGLA 0a (maxima prioridad): si la camara confirma el cartel
-        META (verde, self._meta_activo, ver stop_sign_detector_node),
-        avanza avance_meta_m (30cm) mas y RECIEN AHI se detiene y
-        termina (AVANCE_META) -- logica_dos_reglas no cuenta celdas,
-        asi que sin esto no tiene NINGUNA otra forma de saber que
-        llego.
-        REGLA 0b: si la camara confirma el cartel PARE (rojo,
-        self._pare_activo), se detiene tiempo_pare_s (3s) emitiendo un
-        pitido de aviso (PAUSA_PARE) antes de retomar -- una vez
-        respetado, no se vuelve a disparar mientras el mismo cartel
-        siga en camara (self._pare_ya_respetado, se reinicia cuando la
-        camara deja de verlo).
+        REGLA 0 (maxima prioridad dentro de este estado): si la camara
+        confirma el cartel META (verde, self._meta_activo, ver
+        stop_sign_detector_node), avanza avance_meta_m (30cm) mas y
+        RECIEN AHI se detiene y termina (AVANCE_META) -- logica_dos_
+        reglas no cuenta celdas, asi que sin esto no tiene NINGUNA
+        otra forma de saber que llego.
+
+        (El cartel PARE, rojo, se maneja aparte y con MAS prioridad
+        todavia -- ver ``_handle_pare_global``, evaluado en
+        ``_on_timer`` antes de despachar a este handler, asi que
+        interrumpe cualquier estado, no solo este.)
         """
         if self._meta_activo:
             self._publish_event(
@@ -611,18 +652,6 @@ class StateMachineNode(Node):
             self._avance_fijo_inicio_xy = (self._odom_x, self._odom_y)
             self._set_state('AVANCE_META')
             return
-
-        if self._pare_activo:
-            if not self._pare_ya_respetado:
-                self._pare_ya_respetado = True
-                self._publish_event(EV.PARE_DETECTADO, 'PARE (cartel rojo) detectado por camara')
-                self._publish_twist(Twist())
-                self._emitir_pitido_pare()
-                self._pausa_pare_start = self.get_clock().now()
-                self._set_state('PAUSA_PARE')
-                return
-        else:
-            self._pare_ya_respetado = False
 
         z = self._zones
 
